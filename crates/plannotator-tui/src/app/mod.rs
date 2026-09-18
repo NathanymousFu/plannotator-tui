@@ -61,6 +61,14 @@ enum Mode {
     ReviewMenu,
 }
 
+/// A user action that the terminal driver may handle outside application state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AppAction {
+    None,
+    CommentInputEntered,
+    CommentInputExited,
+}
+
 /// Which pane keyboard input goes to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {

@@ -15,6 +15,15 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct Config {
     pub(crate) herdr: HerdrConfig,
+    pub(crate) hooks: HooksConfig,
+}
+
+/// Optional argv commands run after user actions. Commands execute directly, without a shell.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub(crate) struct HooksConfig {
+    pub(crate) comment_input_enter: Vec<String>,
+    pub(crate) comment_input_exit: Vec<String>,
 }
 
 /// How plannotator-tui opens inside Herdr.
@@ -172,6 +181,19 @@ mod tests {
         assert_eq!(config.herdr.placement, Placement::Split);
         assert_eq!(config.herdr.split_direction, SplitDirection::Right);
         assert_eq!(config.herdr.popup_width, "90%");
+        assert!(config.hooks.comment_input_enter.is_empty());
+        assert!(config.hooks.comment_input_exit.is_empty());
+    }
+
+    #[test]
+    fn comment_input_hooks_are_argv_commands() {
+        let config = Config::parse(
+            "[hooks]\ncomment_input_enter = [\"im-select\", \"com.apple.inputmethod.SCIM.ITABC\"]\n\
+             comment_input_exit = [\"im-select\", \"com.apple.keylayout.ABC\"]\n",
+        )
+        .expect("parses");
+        assert_eq!(config.hooks.comment_input_enter, ["im-select", "com.apple.inputmethod.SCIM.ITABC"]);
+        assert_eq!(config.hooks.comment_input_exit, ["im-select", "com.apple.keylayout.ABC"]);
     }
 
     #[cfg(windows)]
