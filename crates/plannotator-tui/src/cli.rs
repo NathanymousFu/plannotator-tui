@@ -6,6 +6,7 @@
 
 use std::io::stdout;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -16,8 +17,8 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::execute;
 
-use crate::app::App;
-use crate::config::Config;
+use crate::app::{App, AppAction};
+use crate::config::{Config, HooksConfig};
 use crate::delivery::{Clipboard, Delivery, Discard, HerdrAgent};
 use crate::doc::Document;
 use crate::herdr::context::HerdrEnv;
@@ -257,6 +258,7 @@ fn interactive(path: &PathBuf) -> Result<()> {
 
 /// Own the terminal for one app: `build` gets the document width the screen allows.
 pub(crate) fn run_ui(build: impl FnOnce(usize) -> Result<App>) -> Result<()> {
+    let hooks = Config::load()?.hooks;
     let mut terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
     let _ = execute!(stdout(), EnableBracketedPaste);
@@ -273,7 +275,7 @@ pub(crate) fn run_ui(build: impl FnOnce(usize) -> Result<App>) -> Result<()> {
     let width = doc_width(terminal.size().map_or(120, |s| s.width));
     let result = build(width).and_then(|mut app| {
         app.shift_enter = shift_enter;
-        event_loop(&mut terminal, app)
+        event_loop(&mut terminal, app, &hooks)
     });
     if shift_enter {
         let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
@@ -284,7 +286,7 @@ pub(crate) fn run_ui(build: impl FnOnce(usize) -> Result<App>) -> Result<()> {
     result
 }
 
-fn event_loop(terminal: &mut ratatui::DefaultTerminal, mut app: App) -> Result<()> {
+fn event_loop(terminal: &mut ratatui::DefaultTerminal, mut app: App, hooks: &HooksConfig) -> Result<()> {
     app.clipboard = true;
     let mut dirty = true;
     while !app.quit {
@@ -295,13 +297,41 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal, mut app: App) -> Result<(
             dirty = false;
         }
         if event::poll(Duration::from_millis(250))? {
-            app.handle_event(&event::read()?)?;
+            handle_ui_event(&mut app, &event::read()?, hooks)?;
             dirty = true;
             // Coalesce bursts (wheel, drag) into one redraw.
             while event::poll(Duration::ZERO)? {
-                app.handle_event(&event::read()?)?;
+                handle_ui_event(&mut app, &event::read()?, hooks)?;
             }
         }
+    }
+    Ok(())
+}
+
+fn handle_ui_event(app: &mut App, event: &event::Event, hooks: &HooksConfig) -> Result<()> {
+    let (name, command) = match app.handle_event(event)? {
+        AppAction::CommentInputEntered => ("comment_input_enter", hooks.comment_input_enter.as_slice()),
+        AppAction::CommentInputExited => ("comment_input_exit", hooks.comment_input_exit.as_slice()),
+        AppAction::None => return Ok(()),
+    };
+    if let Err(err) = run_hook(command) {
+        app.set_status(format!("{name} failed: {err}"));
+    }
+    Ok(())
+}
+
+/// Run a configured argv command directly. Its output is hidden so it cannot corrupt the TUI.
+fn run_hook(command: &[String]) -> Result<()> {
+    let Some((program, arguments)) = command.split_first() else { return Ok(()) };
+    let status = Command::new(program)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .with_context(|| format!("running {program:?}"))?;
+    if !status.success() {
+        anyhow::bail!("{program:?} exited with {status}");
     }
     Ok(())
 }

@@ -14,7 +14,7 @@ use ratatui::crossterm::event::{
 };
 
 use super::send::SendState;
-use super::{App, Mode};
+use super::{App, AppAction, Mode};
 use crate::delivery::{Delivery, Discard, HerdrAgent};
 
 /// A fresh, empty data directory for one test. `App::open` resolves the real one, and a
@@ -403,7 +403,8 @@ fn a_comment_can_span_lines_and_enter_saves_it() {
     let (col, row) = (5, 3);
     app.handle_event(&click_at(col, row)).expect("click");
     app.handle_event(&click_at(col, row)).expect("double click");
-    app.handle_event(&key(KeyCode::Char('c'), KeyModifiers::NONE)).expect("open compose");
+    let action = app.handle_event(&key(KeyCode::Char('c'), KeyModifiers::NONE)).expect("open compose");
+    assert_eq!(action, AppAction::CommentInputEntered);
     for c in "first line".chars() {
         app.handle_event(&key(KeyCode::Char(c), KeyModifiers::NONE)).expect("type");
     }
@@ -420,9 +421,21 @@ fn a_comment_can_span_lines_and_enter_saves_it() {
     assert!(rows.iter().any(|r| r.contains("first line")), "compose shows line one: {rows:?}");
     assert!(rows.iter().any(|r| r.contains("second")), "compose shows line two");
     assert!(rows.iter().any(|r| r.contains("alt+enter new line")), "hint shows the fallback key");
-    app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("save");
+    let action = app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("save");
+    assert_eq!(action, AppAction::CommentInputExited);
     let placed = app.open.store.placed();
     assert_eq!(placed.last().expect("annotation").annotation.body, "first line\nsecond\nthird");
+}
+
+#[test]
+fn escaping_comment_input_reports_that_it_exited() {
+    let mut app = app(Box::new(Discard));
+    draw(&mut app);
+    let action = app.handle_event(&key(KeyCode::Char('c'), KeyModifiers::NONE)).expect("open compose");
+    assert_eq!(action, AppAction::CommentInputEntered);
+    let action = app.handle_event(&key(KeyCode::Esc, KeyModifiers::NONE)).expect("cancel compose");
+    assert_eq!(action, AppAction::CommentInputExited);
+    assert_eq!(app.mode, Mode::Browse);
 }
 
 #[test]

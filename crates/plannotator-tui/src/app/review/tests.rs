@@ -4,7 +4,7 @@ use plannotator_tui_schema::Kind;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent};
 
 use crate::app::review_test_support::{click, draw, file_app, folder_app, press, reopen};
-use crate::app::{Focus, Mode};
+use crate::app::{AppAction, Focus, Mode};
 use crate::store::Location;
 
 #[test]
@@ -68,6 +68,24 @@ fn sent_markers_clear_on_edit_and_review_shortcuts_are_text_while_composing() {
     assert!(!draw(&mut app, 100, 24).contains(" · sent"));
     press(&mut app, 'q');
     assert_eq!(app.mode, Mode::ConfirmQuit, "an edited sent note still needs sending");
+    std::fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn editing_a_comment_reports_input_entry_and_exit() {
+    let (root, mut app, _) = file_app("edit-lifecycle");
+    app.add_quote_annotation("one", Kind::Comment, "note".into()).expect("annotation");
+    app.focus = Focus::Rail;
+
+    let action = app.handle_event(&Event::Key(KeyEvent::from(KeyCode::Char('e')))).expect("edit");
+    assert_eq!(action, AppAction::CommentInputEntered);
+    assert!(matches!(app.mode, Mode::Edit(_)));
+
+    app.handle_event(&Event::Key(KeyEvent::from(KeyCode::Char('!')))).expect("type");
+    let action = app.handle_event(&Event::Key(KeyEvent::from(KeyCode::Enter))).expect("save edit");
+    assert_eq!(action, AppAction::CommentInputExited);
+    assert_eq!(app.mode, Mode::Browse);
+    assert_eq!(app.open.store.placed()[0].annotation.body, "note!");
     std::fs::remove_dir_all(root).expect("cleanup");
 }
 

@@ -93,7 +93,16 @@ the agent as its next message: `Send 3 new ▸ claude in w1:p2 (E)`. Folder revi
 # ~/.config/plannotator-tui/config.toml
 [herdr]
 placement = "overlay"   # overlay (full tab, default) | split | popup
+
+# Optional argv commands, run without a shell when comment input opens and closes.
+# This macOS example enters with Simplified Chinese Pinyin and exits with ABC.
+[hooks]
+comment_input_enter = ["im-select", "com.apple.inputmethod.SCIM.ITABC"]
+comment_input_exit = ["im-select", "com.apple.keylayout.ABC"]
 ```
+
+Hook commands run synchronously with their standard streams hidden, so they should return
+quickly. The exit hook runs after both `Enter` and `Esc`; a failed hook is reported in the footer.
 
 `plannotator-tui herdr last --newest` opens the agent's newest reply without asking which
 one; without the flag the picker comes first, as it always has.

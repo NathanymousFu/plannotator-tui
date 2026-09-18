@@ -10,12 +10,13 @@ use super::compose::ComposeAction;
 use super::menu::ReviewAction;
 use super::selection::Selection;
 use super::send::SendState;
-use super::{App, Focus, GUTTER, Mode, Pending, TOOLBAR};
+use super::{App, AppAction, Focus, GUTTER, Mode, Pending, TOOLBAR};
 use crate::delivery::Delivery as _;
 
 impl App {
-    pub(crate) fn handle_event(&mut self, event: &Event) -> Result<()> {
-        match event {
+    pub(crate) fn handle_event(&mut self, event: &Event) -> Result<AppAction> {
+        let was_comment_input = matches!(self.mode, Mode::Compose | Mode::Edit(_));
+        let result = match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => match &self.mode {
                 Mode::Browse => self.browse_key(*key),
                 Mode::ConfirmQuit => self.confirm_quit_key(*key),
@@ -41,7 +42,14 @@ impl App {
                 Ok(())
             }
             _ => Ok(()),
-        }
+        };
+        result?;
+        let is_comment_input = matches!(self.mode, Mode::Compose | Mode::Edit(_));
+        Ok(match (was_comment_input, is_comment_input) {
+            (false, true) => AppAction::CommentInputEntered,
+            (true, false) => AppAction::CommentInputExited,
+            _ => AppAction::None,
+        })
     }
 
     fn browse_key(&mut self, key: KeyEvent) -> Result<()> {
