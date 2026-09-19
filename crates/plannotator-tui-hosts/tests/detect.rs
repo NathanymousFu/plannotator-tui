@@ -67,14 +67,28 @@ fn the_copilot_marker_selects_copilot_and_droid_needs_the_override() {
 }
 
 #[test]
+fn dsh_is_selected_by_its_name_including_the_profile_herdr_reports() {
+    // Herdr labels the pane with the profile dsh was booted with, not the CLI.
+    assert_eq!(detect_host(env(&[("PLANNOTATOR_TUI_HOST", "dsh-tui")])).expect("host"), Host::Dsh);
+    assert_eq!(detect_host(env(&[("PLANNOTATOR_TUI_HOST", "dsh")])).expect("host"), Host::Dsh);
+    assert_eq!(detect_host(env(&[("PLANNOTATOR_TUI_HOST", "DSH-Work")])).expect("host"), Host::Dsh);
+    // dsh exports this into every shell and tool call it runs.
+    assert_eq!(
+        detect_host(env(&[("DSH_SESSION_ID", "359c0903-747a-4dc8-b70a-6ce63db9d51a")])).expect("host"),
+        Host::Dsh
+    );
+}
+
+#[test]
 fn labels_are_the_short_names_herdr_uses() {
     assert_eq!(Host::ClaudeCode.label(), "claude");
     assert_eq!(Host::Codex.label(), "codex");
     assert_eq!(Host::Copilot.label(), "copilot");
     assert_eq!(Host::Droid.label(), "droid");
+    assert_eq!(Host::Dsh.label(), "dsh");
     assert_eq!(Host::Pi.label(), "pi");
     assert_eq!(Host::Omp.label(), "omp");
     assert_eq!(Host::Hermes.label(), "hermes");
     assert_eq!(Host::OpenCode.label(), "opencode");
-    assert_eq!(Host::ALL.len(), 8);
+    assert_eq!(Host::ALL.len(), 9);
 }

@@ -19,6 +19,18 @@ fn head(relative: &str) -> String {
 fn each_fixture_format_is_recognised() {
     assert_eq!(sniff(&head("claude-code.jsonl")), Some(Host::ClaudeCode));
     assert_eq!(sniff(&head("pi.jsonl")), Some(Host::Pi));
+    // dsh's header is pi's shape (`type`/`version`/`id`/`cwd`); its events name its host.
+    assert_eq!(
+        sniff(
+            "{\"type\":\"assistant/message\",\"seq\":20,\"data\":{\"turn\":1,\"step\":2,\"message\":{}}}\n"
+        ),
+        Some(Host::Dsh)
+    );
+    assert_eq!(
+        sniff("{\"type\":\"session\",\"version\":3,\"id\":\"1a\",\"cwd\":\"/w\",\"delegationDepth\":0}\n"),
+        Some(Host::Dsh),
+        "a session with only dsh's header keys"
+    );
     assert_eq!(
         sniff(&head(
             "pi-sessions/--work-project--/2026-08-28T10-30-00-000Z_01a00000-0000-7000-8000-000000000002.jsonl"

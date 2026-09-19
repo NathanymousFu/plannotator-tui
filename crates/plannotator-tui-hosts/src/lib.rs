@@ -9,6 +9,7 @@ pub mod claude;
 pub mod codex;
 pub mod copilot;
 pub mod droid;
+pub mod dsh;
 pub mod hermes;
 pub mod omp;
 pub mod opencode;
@@ -27,6 +28,8 @@ pub enum Host {
     Copilot,
     /// Droid (Factory): `~/.factory/sessions/<slug>/<session>.jsonl`, Claude's shape, file order.
     Droid,
+    /// `DeepSeek` Harness (`dsh`): `$DSH_HOME/sessions/<encoded cwd>/<session id>/session.v3.jsonl.zstd`.
+    Dsh,
     Pi,
     /// Oh My Pi: pi's format and layout under `~/.omp/agent/sessions`.
     Omp,
@@ -45,6 +48,7 @@ impl Host {
             Self::Codex => "codex",
             Self::Copilot => "copilot",
             Self::Droid => "droid",
+            Self::Dsh => "dsh",
             Self::Pi => "pi",
             Self::Omp => "omp",
             Self::Hermes => "hermes",
@@ -53,13 +57,14 @@ impl Host {
     }
 
     /// Every host with a transcript reader, for messages that list them.
-    pub const ALL: [Host; 8] = [
+    pub const ALL: [Host; 9] = [
         Host::ClaudeCode,
         Host::Codex,
         Host::Pi,
         Host::Omp,
         Host::Copilot,
         Host::Droid,
+        Host::Dsh,
         Host::Hermes,
         Host::OpenCode,
     ];
@@ -72,6 +77,15 @@ pub fn sniff(head: &str) -> Option<Host> {
     let compact = head.replace(": ", ":");
     let lines: Vec<&str> = compact.lines().filter(|l| !l.trim().is_empty()).take(50).collect();
     let any = |needle: &str| lines.iter().any(|l| l.contains(needle));
+    // dsh's header is pi's shape (`type`/`version`/`id`/`cwd`), so its own event names and
+    // its `createdAt`/`delegationDepth` header have to be checked first.
+    if any(r#""type":"assistant/message""#)
+        || any(r#""type":"user/message""#)
+        || any(r#""type":"step/start""#)
+        || (any(r#""type":"session""#) && any(r#""delegationDepth""#))
+    {
+        return Some(Host::Dsh);
+    }
     if any(r#""type":"session""#) && (any(r#""parentId""#) || any(r#""version""#)) {
         return Some(Host::Pi);
     }
@@ -173,17 +187,25 @@ impl From<std::io::Error> for HostError {
 
 /// The host-assigned session id a transcript's name carries, when the host's naming
 /// scheme makes it unambiguous: Claude Code and Droid file a session as `<uuid>.jsonl`,
-/// a Codex rollout ends in its thread uuid, and a Copilot session is a directory named by
-/// its uuid. Anything that is not uuid-shaped yields `None`: an arbitrary path handed in
-/// with `--session` must never be mistaken for an id, and a path is never one.
+/// a Codex rollout ends in its thread uuid, and a Copilot or dsh session is a directory
+/// named by its uuid. Anything that is not uuid-shaped yields `None`: an arbitrary path
+/// handed in with `--session` must never be mistaken for an id, and a path is never one.
 pub fn session_id_of(host: Host, transcript: &Path) -> Option<String> {
     let candidate = match host {
         Host::ClaudeCode | Host::Droid => transcript.file_stem()?.to_str()?.to_owned(),
         Host::Codex => codex::thread_of(transcript)?,
         Host::Copilot => transcript.file_name()?.to_str()?.to_owned(),
+        // dsh names the session's *directory*, not the file inside it.
+        Host::Dsh => return dsh::session_id(transcript),
         Host::Pi | Host::Omp | Host::Hermes | Host::OpenCode => return None,
     };
     is_uuid(&candidate).then_some(candidate)
+}
+
+/// Whether a host name names `DeepSeek` Harness: the CLI or one of its profiles.
+pub fn is_dsh(name: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    name == "dsh" || name == "deepseek-harness" || name.starts_with("dsh-") || name.starts_with("dsh_")
 }
 
 /// `8-4-4-4-12` hex groups, any case.
@@ -209,6 +231,8 @@ pub fn detect_host(env: impl Fn(&str) -> Option<String>) -> Result<Host, HostErr
             "codex" => return Ok(Host::Codex),
             "copilot" | "copilot-cli" | "copilot_cli" => return Ok(Host::Copilot),
             "droid" | "factory" => return Ok(Host::Droid),
+            // Herdr names the profile dsh booted (`dsh`, `dsh-tui`, `dsh-work`), not the CLI.
+            name if is_dsh(name) => return Ok(Host::Dsh),
             "pi" => return Ok(Host::Pi),
             "omp" | "oh-my-pi" | "ohmypi" => return Ok(Host::Omp),
             "hermes" | "hermes-cli" | "hermes_cli" => return Ok(Host::Hermes),
@@ -218,6 +242,11 @@ pub fn detect_host(env: impl Fn(&str) -> Option<String>) -> Result<Host, HostErr
     }
     if set("CODEX_THREAD_ID") {
         return Ok(Host::Codex);
+    }
+    // dsh exports this into every shell and tool call it runs, so a review started from
+    // inside a dsh session knows which host it is in.
+    if set("DSH_SESSION_ID") {
+        return Ok(Host::Dsh);
     }
     if set("COPILOT_CLI") {
         return Ok(Host::Copilot);

@@ -16,6 +16,10 @@ pub(crate) enum DeliveryError {
     Blocked(String),
     /// No agent to send to: pane gone, agent not detected yet, herdr binary missing.
     Unavailable(String),
+    /// Herdr refused before typing anything because it cannot drive this agent: an agent
+    /// that reports its own lifecycle (see `report-agent`) has no manifest telling
+    /// `agent prompt` how to type into it. The pane itself may still take the text.
+    Unpromptable(String),
     /// Anything else, with whatever the transport said.
     Failed(anyhow::Error),
 }
@@ -23,7 +27,7 @@ pub(crate) enum DeliveryError {
 impl std::fmt::Display for DeliveryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Blocked(msg) | Self::Unavailable(msg) => f.write_str(msg),
+            Self::Blocked(msg) | Self::Unavailable(msg) | Self::Unpromptable(msg) => f.write_str(msg),
             Self::Failed(err) => write!(f, "{err:#}"),
         }
     }
@@ -104,6 +108,41 @@ impl HerdrAgent {
     pub(crate) fn new(bin: PathBuf, pane: String, agent: Option<String>) -> Self {
         Self { bin, pane, agent }
     }
+
+    /// `herdr pane run <pane> <text>`: paste the feedback and submit it without asking
+    /// Herdr to know the agent. Bracketed paste keeps a multi-line body one paste plus one
+    /// Enter. Used only for an agent `agent prompt` refuses to drive.
+    fn paste_into_pane(&self, feedback: &str) -> Result<(), DeliveryError> {
+        let output = Command::new(&self.bin)
+            .args(["pane", "run", &self.pane, feedback])
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|err| DeliveryError::Unavailable(format!("cannot run {}: {err}", self.bin.display())))?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let message = error_message(&String::from_utf8_lossy(&output.stderr));
+        Err(DeliveryError::Failed(anyhow::anyhow!("herdr pane run failed: {message}")))
+    }
+
+    /// Whether the pane still hosts an agent (`herdr agent get`). Pasting into a pane that
+    /// does not is the one thing this fallback must never do: a shell would run the
+    /// feedback as a command.
+    fn pane_hosts_an_agent(&self) -> bool {
+        Command::new(&self.bin)
+            .args(["agent", "get", &self.pane])
+            .stdin(Stdio::null())
+            .output()
+            .is_ok_and(|output| output.status.success() && listed_agent(&output.stdout).is_some())
+    }
+}
+
+/// The `agent` name in an `agent get` reply; a pane without an agent answers with an
+/// error envelope instead.
+fn listed_agent(stdout: &[u8]) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_slice(stdout).ok()?;
+    let agent = json.pointer("/result/agent/agent")?.as_str()?.trim().to_owned();
+    (!agent.is_empty()).then_some(agent)
 }
 
 impl Delivery for HerdrAgent {
@@ -128,11 +167,20 @@ impl Delivery for HerdrAgent {
             .stdin(Stdio::null())
             .output()
             .map_err(|err| DeliveryError::Unavailable(format!("cannot run {}: {err}", self.bin.display())))?;
-        parse_response(
+        let classified = parse_response(
             output.status.success(),
             &String::from_utf8_lossy(&output.stdout),
             &String::from_utf8_lossy(&output.stderr),
-        )
+        );
+        match classified {
+            // Herdr checked the pane and typed nothing, so the text is still ours to
+            // place. A dialog is different: Herdr refused on purpose, and pasting into it
+            // would answer the dialog instead of delivering feedback.
+            Err(DeliveryError::Unpromptable(_)) if self.pane_hosts_an_agent() => {
+                self.paste_into_pane(feedback)
+            }
+            outcome => outcome,
+        }
     }
 }
 
@@ -142,24 +190,34 @@ pub(crate) fn parse_response(success: bool, _stdout: &str, stderr: &str) -> Resu
     if success {
         return Ok(());
     }
-    let envelope: Option<serde_json::Value> = serde_json::from_str(stderr.trim()).ok();
-    let error = envelope.as_ref().and_then(|v| v.get("error"));
-    let code = error.and_then(|e| e.get("code")).and_then(serde_json::Value::as_str);
-    let message = error
-        .and_then(|e| e.get("message"))
-        .and_then(serde_json::Value::as_str)
-        .map_or_else(|| stderr.trim().to_owned(), str::to_owned);
-    match code {
+    let code = error_code(stderr);
+    let message = error_message(stderr);
+    match code.as_deref() {
         Some("agent_blocked") => Err(DeliveryError::Blocked(message)),
-        Some("agent_not_found" | "agent_not_ready" | "pane_not_found" | "empty_agent_prompt") => {
-            Err(DeliveryError::Unavailable(message))
-        }
+        // Herdr found the pane and typed nothing: an agent it cannot drive. Whoever called
+        // decides whether the pane itself can take the text instead.
+        Some("agent_not_found" | "agent_not_ready") => Err(DeliveryError::Unpromptable(message)),
+        Some("pane_not_found" | "empty_agent_prompt") => Err(DeliveryError::Unavailable(message)),
         Some(code) => Err(DeliveryError::Failed(anyhow::anyhow!("{code}: {message}"))),
         None => Err(DeliveryError::Failed(anyhow::anyhow!(
             "herdr agent prompt failed: {}",
             if message.is_empty() { "no output".to_owned() } else { message }
         ))),
     }
+}
+
+/// The `code` of Herdr's JSON error envelope, when it sent one.
+fn error_code(stderr: &str) -> Option<String> {
+    let envelope: serde_json::Value = serde_json::from_str(stderr.trim()).ok()?;
+    Some(envelope.pointer("/error/code")?.as_str()?.to_owned())
+}
+
+/// The `message` of Herdr's JSON error envelope, else the raw stderr.
+fn error_message(stderr: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(stderr.trim())
+        .ok()
+        .and_then(|envelope| envelope.pointer("/error/message")?.as_str().map(str::to_owned))
+        .unwrap_or_else(|| stderr.trim().to_owned())
 }
 
 #[cfg(test)]
@@ -197,6 +255,103 @@ mod tests {
         assert!(sequence.contains(&crate::base64::encode(text.as_bytes())));
     }
 
+    /// A stand-in for `herdr`: it refuses `agent prompt` the way Herdr refuses an agent it
+    /// cannot drive, answers `agent get` from the case, and logs every call. A shell script
+    /// is enough for the unix tests and keeps them off any build step.
+    #[cfg(unix)]
+    fn fake_herdr(tag: &str, prompt_error: &str, agent_get: (&str, i32)) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = std::env::temp_dir().join(format!("plannotator delivery {tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let log = dir.join("calls.log");
+        let bin = dir.join("herdr");
+        std::fs::write(
+            &bin,
+            format!(
+                concat!(
+                    "#!/bin/sh\n",
+                    "printf '%s\\n' \"$*\" >> '{log}'\n",
+                    "case \"$1 $2\" in\n",
+                    "  'agent prompt') printf '%s' '{prompt_error}' >&2; exit 1 ;;\n",
+                    "  'agent get') printf '%s' '{agent_get}'; exit {agent_get_exit} ;;\n",
+                    "  'pane run') exit 0 ;;\n",
+                    "esac\n",
+                    "exit 1\n"
+                ),
+                log = log.display(),
+                prompt_error = prompt_error,
+                agent_get = agent_get.0,
+                agent_get_exit = agent_get.1,
+            ),
+        )
+        .expect("fake herdr");
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        (bin, log)
+    }
+
+    /// The calls the fake recorded, then its directory.
+    #[cfg(unix)]
+    fn calls(log: &std::path::Path) -> String {
+        let text = std::fs::read_to_string(log).expect("call log");
+        std::fs::remove_dir_all(log.parent().expect("parent")).expect("cleanup");
+        text
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_agent_herdr_cannot_prompt_gets_the_feedback_pasted_into_its_pane() {
+        // dsh reports its own lifecycle (`herdr pane report-agent`), so Herdr has no
+        // manifest to drive it and refuses the prompt; the pane is the only way in.
+        let (bin, log) = fake_herdr(
+            "custom agent",
+            r#"{"error":{"code":"agent_not_ready","message":"agent w1:p1 is not ready for prompts"}}"#,
+            (r#"{"result":{"agent":{"agent":"dsh-tui","pane_id":"w1:p1"}}}"#, 0),
+        );
+        let outcome = HerdrAgent::new(bin, "w1:p1".into(), Some("dsh-tui".into())).deliver("feedback text");
+
+        assert!(outcome.is_ok(), "{outcome:?}");
+        assert_eq!(
+            calls(&log),
+            "agent prompt w1:p1 feedback text\nagent get w1:p1\npane run w1:p1 feedback text\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pane_without_an_agent_is_never_pasted_into() {
+        // A shell would run the feedback as a command, so the refusal stands.
+        let (bin, log) = fake_herdr(
+            "no agent",
+            r#"{"error":{"code":"agent_not_found","message":"agent target w1:p1 not found"}}"#,
+            (r#"{"error":{"code":"agent_not_found","message":"agent target w1:p1 not found"}}"#, 1),
+        );
+        let err = HerdrAgent::new(bin, "w1:p1".into(), None).deliver("feedback text").expect_err("refused");
+
+        assert!(matches!(err, DeliveryError::Unpromptable(_)), "{err:?}");
+        let calls = calls(&log);
+        assert!(calls.contains("agent get w1:p1"), "{calls}");
+        assert!(!calls.contains("pane run"), "{calls}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dialog_is_not_answered_by_pasting_feedback_into_it() {
+        // Herdr refused because the agent is at a dialog: pasting would answer the dialog.
+        let (bin, log) = fake_herdr(
+            "dialog",
+            r#"{"error":{"code":"agent_blocked","message":"agent w1:p1 is blocked"}}"#,
+            (r#"{"result":{"agent":{"agent":"dsh-tui","pane_id":"w1:p1"}}}"#, 0),
+        );
+        let err = HerdrAgent::new(bin, "w1:p1".into(), Some("dsh-tui".into()))
+            .deliver("feedback text")
+            .expect_err("refused");
+
+        assert!(matches!(&err, DeliveryError::Blocked(m) if m == "agent w1:p1 is blocked"), "{err:?}");
+        assert_eq!(calls(&log), "agent prompt w1:p1 feedback text\n");
+    }
+
     #[test]
     fn headless_runs_never_reach_the_terminal_clipboard() {
         // `--print`, `--export` and `--snapshot` open the app non-interactively, and a freshly
@@ -221,11 +376,30 @@ mod tests {
     }
 
     #[test]
-    fn missing_or_unready_agent_is_unavailable() {
-        for code in ["agent_not_found", "agent_not_ready", "pane_not_found", "empty_agent_prompt"] {
+    fn an_agent_herdr_cannot_drive_is_a_refusal_before_typing() {
+        // Herdr found the pane and typed nothing, so the caller may paste into the pane.
+        for code in ["agent_not_found", "agent_not_ready"] {
+            let err = parse_response(false, "", &envelope(code, "not ready for prompts")).unwrap_err();
+            assert!(matches!(&err, DeliveryError::Unpromptable(m) if m == "not ready for prompts"), "{code}");
+        }
+    }
+
+    #[test]
+    fn a_gone_pane_or_an_empty_prompt_is_unavailable() {
+        for code in ["pane_not_found", "empty_agent_prompt"] {
             let err = parse_response(false, "", &envelope(code, "gone")).unwrap_err();
             assert!(matches!(err, DeliveryError::Unavailable(_)), "{code}");
         }
+    }
+
+    #[test]
+    fn an_agent_get_reply_names_the_agent_only_when_one_is_there() {
+        let listed = br#"{"result":{"agent":{"agent":"dsh-tui","pane_id":"w1:p1"}}}"#;
+        assert_eq!(listed_agent(listed).as_deref(), Some("dsh-tui"));
+        let refused = br#"{"error":{"code":"agent_not_found","message":"none"}}"#;
+        assert_eq!(listed_agent(refused), None);
+        assert_eq!(listed_agent(br#"{"result":{"agent":{"agent":"  "}}}"#), None);
+        assert_eq!(listed_agent(b"not json"), None);
     }
 
     #[test]

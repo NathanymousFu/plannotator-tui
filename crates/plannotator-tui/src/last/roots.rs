@@ -12,6 +12,7 @@ pub(super) struct Roots {
     pub(super) codex_home: PathBuf,
     pub(super) copilot_home: PathBuf,
     pub(super) factory_config: PathBuf,
+    pub(super) dsh_home: PathBuf,
     pi_session_dir: Option<PathBuf>,
     pi_agent_dir: Option<PathBuf>,
     hermes_home: PathBuf,
@@ -34,6 +35,7 @@ impl Roots {
             codex_home: path("CODEX_HOME").unwrap_or_else(|| home.join(".codex")),
             copilot_home: path("COPILOT_HOME").unwrap_or_else(|| home.join(".copilot")),
             factory_config: path("FACTORY_CONFIG_DIR").unwrap_or_else(|| home.join(".factory")),
+            dsh_home: path("DSH_HOME").unwrap_or_else(|| home.join(".dsh")),
             pi_session_dir: path("PI_CODING_AGENT_SESSION_DIR"),
             pi_agent_dir: path("PI_CODING_AGENT_DIR"),
             hermes_home,
@@ -47,6 +49,11 @@ impl Roots {
         self.pi_session_dir.clone().unwrap_or_else(|| {
             self.pi_agent_dir.clone().unwrap_or_else(|| self.home.join(default_agent_dir)).join("sessions")
         })
+    }
+
+    /// `$DSH_HOME/sessions`, the bucket dsh files one directory per session into.
+    pub(super) fn dsh_sessions(&self) -> PathBuf {
+        self.dsh_home.join("sessions")
     }
 
     pub(super) fn hermes_database(&self) -> PathBuf {
@@ -106,6 +113,7 @@ mod tests {
             ("CODEX_HOME", "root/codex".into()),
             ("COPILOT_HOME", "root/copilot".into()),
             ("FACTORY_CONFIG_DIR", "root/factory".into()),
+            ("DSH_HOME", "root/dsh".into()),
             ("PI_CODING_AGENT_SESSION_DIR", "root/pi sessions".into()),
             ("PI_CODING_AGENT_DIR", "root/pi agent ignored".into()),
             ("HERMES_HOME", "root/hermes".into()),
@@ -119,6 +127,7 @@ mod tests {
         assert_eq!(roots.codex_home, PathBuf::from("root/codex"));
         assert_eq!(roots.copilot_home, PathBuf::from("root/copilot"));
         assert_eq!(roots.factory_config, PathBuf::from("root/factory"));
+        assert_eq!(roots.dsh_sessions(), PathBuf::from("root/dsh").join("sessions"));
         assert_eq!(roots.pi_sessions(".pi/agent"), PathBuf::from("root/pi sessions"));
         assert_eq!(roots.hermes_database(), PathBuf::from("root/hermes").join(hermes::DB_FILE));
         assert_eq!(roots.opencode_databases(), vec![PathBuf::from("root/opencode/custom.db")]);

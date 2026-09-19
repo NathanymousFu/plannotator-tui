@@ -10,6 +10,8 @@ description = "Find a coding agent's transcript and read its recent messages (Cl
 
 [dependencies]
 rusqlite = { version = "0.31.0", features = ["bundled"] }
+# dsh appends one zstd frame per flush; a Rust decoder keeps the reader in-process.
+ruzstd = "0.9.0"
 serde_json.workspace = true
 
 [lints]

@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use plannotator_tui_hosts::{Role, claude, codex, copilot, droid, omp, pi};
+use plannotator_tui_hosts::{Role, claude, codex, copilot, droid, dsh, omp, pi};
 
 const NAMED_CODEX_ID: &str = "11111111-1111-4111-8111-111111111111";
 const NEWER_CODEX_ID: &str = "22222222-2222-4222-8222-222222222222";
@@ -295,4 +295,88 @@ fn herdr_open_rejects_newest_by_name() {
     let out = bin().args(["herdr", "open", "--bogus"]).output().expect("runs");
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("unknown flag --bogus"));
+}
+
+const DSH_SESSION: &str = "11111111-1111-4111-8111-111111111111";
+
+/// The fixture dsh transcript for `/work/project`, as dsh files it: a uuid directory under
+/// the bucket its encoded cwd names, holding one zstd frame chain.
+fn dsh_transcript() -> PathBuf {
+    fixtures().join("dsh/sessions/--work-project--").join(DSH_SESSION).join("session.v3.jsonl.zstd")
+}
+
+fn dsh_home(tag: &str, cwd: &str) -> PathBuf {
+    let home = temp_dir(tag).join("dsh home ü");
+    let dir = home.join("sessions").join(pi::encoded_dir(std::path::Path::new(cwd))).join(DSH_SESSION);
+    std::fs::create_dir_all(&dir).expect("session dir");
+    std::fs::copy(dsh_transcript(), dir.join("session.v3.jsonl.zstd")).expect("fixture copy");
+    home
+}
+
+#[test]
+fn print_reads_a_dsh_frame_chain_by_path_by_cwd_and_by_session_id() {
+    let transcript = dsh_transcript();
+    let expected = dsh::parse_messages(&dsh::read_transcript(&transcript).expect("decodes"), 25)
+        .into_iter()
+        .find(|m| m.role == Role::Assistant)
+        .expect("fixture has an assistant message")
+        .text;
+    assert_eq!(expected, "second reply", "the newest message lives in the appended frame");
+
+    let out = bin()
+        .args(["last", "--host", "dsh", "--session"])
+        .arg(&transcript)
+        .arg("--print")
+        .output()
+        .expect("runs");
+    assert!(out.status.success());
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim_end(), expected);
+
+    // Herdr names no session for a dsh pane, so the cwd bucket is the usual way in.
+    let home = dsh_home("dsh cwd", "/work/project");
+    let by_cwd = bin()
+        .env("DSH_HOME", &home)
+        .env("PLANNOTATOR_TUI_CWD", "/work/project")
+        .args(["last", "--host", "dsh", "--print"])
+        .output()
+        .expect("runs");
+    assert!(by_cwd.status.success());
+    assert_eq!(String::from_utf8_lossy(&by_cwd.stdout).trim_end(), expected);
+
+    let by_id = bin()
+        .env("DSH_HOME", &home)
+        .env("PLANNOTATOR_TUI_CWD", "/work/project")
+        .args(["last", "--host", "dsh", "--session-id", DSH_SESSION, "--print"])
+        .output()
+        .expect("runs");
+    assert!(by_id.status.success());
+    assert_eq!(String::from_utf8_lossy(&by_id.stdout).trim_end(), expected);
+
+    let missing = bin()
+        .env("DSH_HOME", &home)
+        .env("PLANNOTATOR_TUI_CWD", "/work/project")
+        .args(["last", "--host", "dsh", "--session-id", "99999999-9999-4999-8999-999999999999", "--print"])
+        .output()
+        .expect("runs");
+    assert!(missing.status.success(), "exit 0 is the contract");
+    assert!(missing.stdout.is_empty(), "an exact miss must not print another session");
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("no dsh session"));
+    std::fs::remove_dir_all(&home).expect("cleanup");
+}
+
+#[test]
+fn a_dsh_session_without_a_reply_says_what_it_looked_in() {
+    let home = dsh_home("dsh none", "/work/project");
+    let out = bin()
+        .env("DSH_HOME", &home)
+        .env("PLANNOTATOR_TUI_CWD", "/work/elsewhere")
+        .args(["last", "--host", "dsh", "--print"])
+        .output()
+        .expect("runs");
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("no dsh session for /work/elsewhere"), "{stderr}");
+    assert!(stderr.contains("--work-elsewhere--"), "the bucket it looked in: {stderr}");
+    std::fs::remove_dir_all(&home).expect("cleanup");
 }

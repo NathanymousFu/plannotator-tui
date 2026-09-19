@@ -7,7 +7,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 #[cfg(unix)]
 use plannotator_tui_hosts::copilot;
-use plannotator_tui_hosts::{Host, Match, Message, claude, droid, opencode, pi};
+use plannotator_tui_hosts::{Host, Match, Message, claude, droid, dsh, opencode, pi};
 
 use super::LastOptions;
 use super::exact;
@@ -61,6 +61,11 @@ pub(super) fn read(
         Host::Droid => {
             let path = find_droid_transcript(cwd, roots)?;
             let messages = readers::droid_messages(&path, pick)?;
+            Ok((path, messages, Discovery::Folder))
+        }
+        Host::Dsh => {
+            let path = find_dsh_transcript(cwd, roots)?;
+            let messages = readers::dsh_messages(&path, pick)?;
             Ok((path, messages, Discovery::Folder))
         }
         Host::Pi => {
@@ -176,6 +181,17 @@ fn find_pi_transcript(cwd: &Path, roots: &Roots, default_agent_dir: &str, label:
     let sessions_dir = roots.pi_sessions(default_agent_dir);
     pi::find_transcript(&sessions_dir, cwd).ok_or_else(|| {
         anyhow::anyhow!("no {label} session for {} (looked in {})", cwd.display(), sessions_dir.display())
+    })
+}
+
+fn find_dsh_transcript(cwd: &Path, roots: &Roots) -> Result<PathBuf> {
+    let sessions_dir = roots.dsh_sessions();
+    dsh::find_transcript(&sessions_dir, cwd).ok_or_else(|| {
+        anyhow::anyhow!(
+            "no dsh session for {} (looked in {})",
+            cwd.display(),
+            sessions_dir.join(pi::encoded_dir(cwd)).display()
+        )
     })
 }
 
