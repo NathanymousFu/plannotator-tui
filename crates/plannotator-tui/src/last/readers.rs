@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use plannotator_tui_hosts::{Host, Message, claude, codex, copilot, droid, hermes, omp, opencode, pi};
+use plannotator_tui_hosts::{Host, Message, claude, codex, copilot, droid, dsh, hermes, omp, opencode, pi};
 
 use super::exact::ExactSession;
 
@@ -22,6 +22,7 @@ pub(super) fn explicit(
         }
         Host::Copilot => Ok((path.to_path_buf(), copilot_messages(path, pick)?)),
         Host::Droid => Ok((path.to_path_buf(), droid_messages(path, pick)?)),
+        Host::Dsh => Ok((path.to_path_buf(), dsh_messages(path, pick)?)),
         Host::Pi => Ok((path.to_path_buf(), pi_messages(path, pick)?)),
         Host::Omp => Ok((path.to_path_buf(), omp_messages(path, pick)?)),
         Host::Hermes => {
@@ -54,6 +55,10 @@ pub(super) fn exact(
         }
         (Host::Droid, ExactSession::File(path)) => {
             let messages = droid_messages(&path, pick)?;
+            Ok((path, messages))
+        }
+        (Host::Dsh, ExactSession::File(path)) => {
+            let messages = dsh_messages(&path, pick)?;
             Ok((path, messages))
         }
         (Host::Pi, ExactSession::File(path)) => {
@@ -130,6 +135,13 @@ pub(super) fn copilot_messages(dir: &Path, pick: usize) -> Result<Vec<Message>> 
 pub(super) fn droid_messages(path: &Path, pick: usize) -> Result<Vec<Message>> {
     let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     Ok(droid::parse_messages(&text, pick))
+}
+
+/// dsh's transcript is JSONL under a chain of zstd frames, so it is read through the
+/// hosts crate rather than `read_to_string`.
+pub(super) fn dsh_messages(path: &Path, pick: usize) -> Result<Vec<Message>> {
+    let text = dsh::read_transcript(path).with_context(|| format!("reading {}", path.display()))?;
+    Ok(dsh::parse_messages(&text, pick))
 }
 
 pub(super) fn omp_messages(path: &Path, pick: usize) -> Result<Vec<Message>> {

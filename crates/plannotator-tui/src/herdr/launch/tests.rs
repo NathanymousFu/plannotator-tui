@@ -332,3 +332,42 @@ fn newest_reaches_the_pane_only_when_last_was_asked_for_it() {
         .expect("plans");
     assert!(!argv(&open).iter().any(|a| a.starts_with("PLANNOTATOR_TUI_NEWEST")));
 }
+
+/// `herdr agent get wG:p1` and `herdr pane process-info --pane wG:p1` as a live dsh pane
+/// answered them: Herdr names the agent's *profile* and knows no session, and every
+/// process dsh runs is `node`, so nothing but the label says the pane is a dsh one.
+const DSH_AGENT_GET: &str = r#"{"id":"cli:agent:get","result":{"agent":{"agent":"dsh-tui","agent_status":"idle","cwd":"/w","pane_id":"wG:p1","terminal_title":"\u2726 dsh-TUI"},"type":"agent_info"}}"#;
+const DSH_PROCESS_INFO: &str = r#"{"id":"cli:pane:process_info","result":{"process_info":{"foreground_process_group_id":33069,"foreground_processes":[{"argv":["node","/Users/me/.nvm/versions/node/v24.18.0/bin/dsh","--profile","dsh-tui"],"argv0":"node","cmdline":"node /Users/me/.nvm/versions/node/v24.18.0/bin/dsh --profile dsh-tui","cwd":"/w","name":"node","pid":33076},{"argv":["node","/Users/me/.dsh/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui/bin/dsh-tui.js"],"argv0":"node","cmdline":"node /Users/me/.dsh/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui/bin/dsh-tui.js","cwd":"/w","name":"node","pid":33070},{"argv":["node","/Users/me/.nvm/versions/node/v24.18.0/bin/dst"],"argv0":"node","cmdline":"node /Users/me/.nvm/versions/node/v24.18.0/bin/dst","cwd":"/w","name":"node","pid":33069}],"pane_id":"wG:p1","shell_pid":26773},"type":"pane_process_info"}}"#;
+
+#[test]
+fn a_dsh_pane_is_named_by_herdrs_profile_label_not_by_its_node_processes() {
+    let context = HerdrContext {
+        focused_pane_id: Some("wG:p1".into()),
+        focused_pane_agent: Some("dsh-tui".into()),
+        focused_pane_cwd: Some("/w".into()),
+        ..HerdrContext::default()
+    };
+    let launch = plan_last(
+        &env(None, Some(context)),
+        &Config::default(),
+        OpenArgs::default(),
+        Path::new("/"),
+        Some(DSH_PROCESS_INFO),
+        Some(DSH_AGENT_GET),
+    )
+    .expect("plans");
+
+    assert_eq!(launch.message, Some(AgentMessage { host: "dsh".into(), pid: Some(33069) }));
+    let args = argv(&launch);
+    assert!(args.contains(&"PLANNOTATOR_TUI_HOST=dsh".to_owned()), "{args:?}");
+    assert!(args.contains(&"PLANNOTATOR_TUI_MESSAGE_PID=33069".to_owned()));
+}
+
+#[test]
+fn every_dsh_profile_names_the_same_host_and_other_labels_are_left_alone() {
+    assert_eq!(host_of_label("dsh-tui"), Some("dsh"));
+    assert_eq!(host_of_label("DSH"), Some("dsh"));
+    assert_eq!(host_of_label("dsh-work"), Some("dsh"));
+    assert_eq!(host_of_label("pi"), Some("pi"));
+    assert_eq!(host_of_label("aider"), None);
+}

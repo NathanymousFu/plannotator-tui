@@ -70,7 +70,9 @@ impl App {
                 self.status = Some(format!("{target} is at a dialog{copied} · {retry} retry"));
                 self.send_state = SendState::Blocked(msg);
             }
-            Err(DeliveryError::Unavailable(msg)) => {
+            // `Unpromptable` comes from Herdr refusing to type into an agent it cannot
+            // drive. The transport already tried the pane itself when one was there.
+            Err(DeliveryError::Unavailable(msg) | DeliveryError::Unpromptable(msg)) => {
                 let copied = if self.copy_fallback(&feedback.text) { " · copied to clipboard" } else { "" };
                 self.status = Some(format!("no agent to send to ({msg}){copied} · {retry} retry"));
                 self.derive_send_state();

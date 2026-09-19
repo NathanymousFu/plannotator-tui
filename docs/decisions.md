@@ -204,6 +204,18 @@ pub(crate) trait Delivery {
 This is decision 6's delivery seam made concrete. Nothing else in the app knows about
 Herdr; `HERDR_ENV=1` only selects the implementation.
 
+**Custom agents** (2026-09-19). An agent that reports its own lifecycle through
+`herdr pane report-agent --source custom:<id> --agent <label>` — dsh-tui is one
+(`@deepseek-harness-tui/dsh-tui/lib/types/herdr.js`) — has a label in Herdr's pane API but
+no *manifest*, so `agent prompt` refuses it and types nothing (`agent_not_ready`; `herdr
+agent explain` says the pane has no detected agent label, and no `agent_session` is
+reported). The transport reads that refusal as "Herdr cannot drive this agent" and only
+then pastes the feedback into the pane itself with `herdr pane run <pane> <text>`
+(bracketed paste plus Enter, no manifest needed), after `herdr agent get <pane>` confirms
+the pane still hosts an agent — pasting into a pane that does not is how feedback would get
+*executed* by a shell. `agent_blocked` never falls back: Herdr refused because a dialog is on
+screen, and pasting into it would answer the dialog instead of delivering feedback.
+
 ## 12. Placement is the user's, and one launcher serves humans and agents (2026-08-28)
 
 Where plannotator-tui opens inside Herdr — full-screen overlay, split beside the agent, or a
@@ -363,3 +375,30 @@ looked up in whichever table holds it. Verified against the `beta` source
 (`packages/core/src/session/sql.ts`, `packages/schema/src/session-message.ts`,
 `packages/util/src/global-roots.ts`) and a mixed-schema fixture reproducing the report.
 
+
+**DeepSeek Harness (`dsh`)** (2026-09-19). dsh files one directory per session under the same
+encoded-cwd bucket pi uses — `$DSH_HOME/sessions/--<cwd>--/<session id>/session.v3.jsonl.zstd`,
+with 0.x's `session.jsonl.zstd` and its `session-` prefixed id still on disk — and
+`$DSH_HOME` else `~/.dsh` picks the home. Two properties drive the reader. The transcript is
+JSONL appended **one zstd frame per flush** (a 91-line session on this machine held 28
+frames), so the reader walks the frame chain rather than stopping at the first frame;
+decoding stays in process (`ruzstd`), because shelling out to `zstd` would put a process
+between the pane and its transcript. And the events are dsh's own: a message is one
+`assistant/message` event (`data.message.content[]`, text blocks only — `reasoning` and
+`tool-call` blocks are not rendered, and an event whose content holds no text takes no picker
+slot) or one `user/message` (`data.content[]`), identified by `data.message.id` else `seq`
+and stamped with Unix milliseconds. One event is one message, as in pi. Discovery takes the
+newest session for the pane's cwd **that holds a reply**: dsh creates the session directory
+as soon as a pane starts, so a newer empty session must not win, and a subagent's session
+(`delegationDepth > 0`, filed in the same bucket) is a delegated child, not the reply on
+screen. The directory name is the session id, so `session_id_of` reads it from there and
+`--session-id` addresses a session directly. Herdr names the *profile* dsh booted (`dsh-tui`),
+not the CLI and no session, and every process dsh runs is `node`, so the launcher's
+`host_of_label` maps the `dsh*` family to this host; `DSH_SESSION_ID`, exported into every
+shell and tool call dsh runs, is the marker for a review started from inside a session.
+Verified against live dsh 0.10.2 sessions on this machine (v3 and 0.x headers, the frame
+chain, the store layout) and the shipped `@deepseek-ai/dsh-shell-env`
+(`DSH_HOME`, `DSH_SESSION_ID`). Before this reader existed a dsh pane fell back to Herdr's
+screen text — `recent-unwrapped` without `--lines`, so one viewport: 79 lines of a
+4802-character reply, its input box and the model footer included — which is the report that
+prompted the entry.

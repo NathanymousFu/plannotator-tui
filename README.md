@@ -87,7 +87,9 @@ Install [Herdr Annotate](https://github.com/plannotator/herdr-annotate); it bund
 opens it in a pane with `prefix+o` (folder) or `prefix+shift+o` (agent's last reply) or by
 Ctrl-clicking a `file://…md` link, and the header button sends the review straight back to
 the agent as its next message: `Send 3 new ▸ claude in w1:p2 (E)`. Folder reviews show
-`Send 3 new across 2 files` and send one combined feedback message.
+`Send 3 new across 2 files` and send one combined feedback message. An agent Herdr cannot
+prompt — one that reports its own state instead of shipping an agent manifest, like dsh —
+gets the same feedback pasted into its pane instead, so `E` works there too.
 
 ```toml
 # ~/.config/plannotator-tui/config.toml
@@ -110,8 +112,8 @@ An explicit `--placement` or `PLANNOTATOR_TUI_PLACEMENT` still takes precedence.
 
 `plannotator-tui last` finds the transcript of the agent that launched your shell and shows a
 picker of its recent replies. Hosts: Claude Code, Codex, pi, Oh My Pi, GitHub Copilot CLI,
-Droid, Hermes CLI, OpenCode (1 and 2). `--host`, `--pid`, `--session <transcript>` (format sniffed when
-no host is named) and `--session-id <id>` (Hermes, OpenCode) override detection; `--stdin`
+Droid, DeepSeek Harness (dsh), Hermes CLI, OpenCode (1 and 2). `--host`, `--pid`, `--session <transcript>` (format sniffed when
+no host is named) and `--session-id <id>` (Copilot, dsh, Hermes, OpenCode) override detection; `--stdin`
 reads a document; `--newest` skips the picker and opens the newest reply straight away, with
 `p` still opening the picker on the rest;
 `--print` writes the newest reply to stdout and always exits 0 (for hooks and scripts).

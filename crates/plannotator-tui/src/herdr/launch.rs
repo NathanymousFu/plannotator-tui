@@ -76,8 +76,18 @@ pub(crate) fn agent_session(agent_get_json: &str) -> Option<AgentSession> {
 /// Parse `herdr agent get <pane>` JSON for a host with a transcript reader.
 fn agent_host(agent_get_json: &str) -> Option<&'static str> {
     let json: serde_json::Value = serde_json::from_str(agent_get_json).ok()?;
-    let label = json.pointer("/result/agent/agent")?.as_str()?;
-    Host::ALL.into_iter().find(|host| host.label() == label).map(Host::label)
+    host_of_label(json.pointer("/result/agent/agent")?.as_str()?)
+}
+
+/// The host a Herdr agent label names, as a label `plannotator-tui last --host` accepts.
+/// dsh boots a *profile*, so Herdr reports the profile it was started with (`dsh-tui`)
+/// rather than the CLI; every profile is dsh's transcript format.
+pub(crate) fn host_of_label(label: &str) -> Option<&'static str> {
+    let label = label.trim().to_ascii_lowercase();
+    if let Some(host) = Host::ALL.into_iter().find(|host| host.label() == label) {
+        return Some(host.label());
+    }
+    plannotator_tui_hosts::is_dsh(&label).then_some("dsh")
 }
 
 /// A supported host plus the exact session reference Herdr reported.
@@ -116,6 +126,7 @@ fn known_host(name: &str) -> Option<&'static str> {
         "codex" => Some("codex"),
         "pi" => Some("pi"),
         "opencode" => Some("opencode"),
+        "dsh" => Some("dsh"),
         _ => None,
     }
 }

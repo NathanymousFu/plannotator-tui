@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use plannotator_tui_hosts::{Host, claude, codex, copilot, droid, omp, opencode, pi};
+use plannotator_tui_hosts::{Host, claude, codex, copilot, droid, dsh, omp, opencode, pi};
 
 use super::roots::Roots;
 
@@ -41,6 +41,12 @@ pub(super) fn resolve(host: Host, session_id: &str, cwd: &Path, roots: &Roots) -
             droid::find_transcript_by_id(&roots.factory_config, cwd, id)?
                 .map(ExactSession::File)
                 .with_context(|| format!("no Droid session {id} in {}", root.display()))
+        }
+        Host::Dsh => {
+            let root = roots.dsh_sessions();
+            dsh::find_transcript_by_id(&root, cwd, id)?
+                .map(ExactSession::File)
+                .with_context(|| format!("no dsh session {id} in {}", root.display()))
         }
         Host::Pi => {
             let root = roots.pi_sessions(".pi/agent");
