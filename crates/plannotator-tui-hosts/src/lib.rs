@@ -28,7 +28,7 @@ pub enum Host {
     Copilot,
     /// Droid (Factory): `~/.factory/sessions/<slug>/<session>.jsonl`, Claude's shape, file order.
     Droid,
-    /// `DeepSeek` Harness (`dsh`): `$DSH_HOME/sessions/<encoded cwd>/<session id>/session.v3.jsonl.zstd`.
+    /// `DeepSeek` Harness (`dsh`): `$DSH_HOME/sessions/<encoded cwd>/<session id>/session.vN.jsonl.zstd`.
     Dsh,
     Pi,
     /// Oh My Pi: pi's format and layout under `~/.omp/agent/sessions`.

@@ -1,13 +1,17 @@
 //! `DeepSeek` Harness (`dsh`) sessions:
-//! `$DSH_HOME/sessions/--<encoded cwd>--/<session id>/session.v3.jsonl.zstd`.
+//! `$DSH_HOME/sessions/--<encoded cwd>--/<session id>/session.vN.jsonl.zstd`.
 //!
 //! One directory per session, named by the session's own id — the `session-` prefixed id
 //! 0.x used, the bare uuid 0.10 uses — under the same encoded-cwd bucket pi files sessions
 //! into. Two things make the file unusual. It is appended under **one zstd frame per
 //! flush**, so the reader walks the frame chain instead of stopping at the first frame; and
 //! its events are dsh's own (`assistant/message`, `user/message`), not a wire format another
-//! agent shares. Verified against dsh 0.10.2 (`@deepseek-ai/dsh`: the session store, the
-//! `session.v3.jsonl.zstd` name, and the event set).
+//! agent shares. Each format generation keeps its own name — `session.jsonl.zstd` for
+//! version 0, `session.vN.jsonl.zstd` after — and a migration leaves the generation it
+//! replaces beside the new one, so discovery reads the highest generation in the directory.
+//! Verified against dsh 0.1.7 (`@deepseek-ai/dsh`: the session store, the `session.vN`
+//! naming rule, the event set) and dsh-tui 0.11.0, whose session-log reader picks the
+//! highest generation the same way.
 
 use std::cmp::Reverse;
 use std::io::Read as _;
@@ -17,9 +21,6 @@ use ruzstd::decoding::StreamingDecoder;
 use serde_json::Value;
 
 use crate::{HostError, Message, Role};
-
-/// The session file names dsh has used, newest scheme first.
-pub const SESSION_FILES: [&str; 2] = ["session.v3.jsonl.zstd", "session.jsonl.zstd"];
 
 /// The newest session for `cwd` that holds a reply. Newest first by the transcript's own
 /// mtime, which dsh updates on every append — a session opened later but still empty is
@@ -143,9 +144,38 @@ fn session_files(bucket: &Path) -> Vec<PathBuf> {
     dirs.into_iter().filter_map(|dir| session_file_in(&dir)).collect()
 }
 
-/// The session file inside one session directory, under the first name dsh used for it.
+/// The session file inside one session directory: the highest format generation it holds.
+/// dsh names a generation `session.jsonl.zstd` for version 0 and `session.vN.jsonl.zstd`
+/// after, and a migration leaves the older file in place, so the newest number wins — the
+/// same rule dsh's own reader applies.
 fn session_file_in(dir: &Path) -> Option<PathBuf> {
-    SESSION_FILES.into_iter().map(|name| dir.join(name)).find(|path| path.is_file())
+    let entries = std::fs::read_dir(dir).ok()?;
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter_map(|path| generation(&path).map(|version| (version, path)))
+        .max_by_key(|(version, _)| *version)
+        .map(|(_, path)| path)
+}
+
+/// The format generation a session file name names: 0 for the original
+/// `session.jsonl.zstd`, the `N` of `session.vN.jsonl.zstd` otherwise. Anything else — a
+/// `session.lock`, a temporary write, an uppercase or leading-zero version, a `.v0` tag, or
+/// an uncompressed log this reader cannot decode — is not a session file.
+fn generation(path: &Path) -> Option<u32> {
+    let name = path.file_name()?.to_str()?;
+    let version = name.strip_prefix("session")?.strip_suffix(".jsonl.zstd")?;
+    if version.is_empty() {
+        return Some(0);
+    }
+    let digits = version.strip_prefix(".v")?;
+    let canonical =
+        !digits.is_empty() && !digits.starts_with('0') && digits.bytes().all(|byte| byte.is_ascii_digit());
+    if !canonical {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 fn modified(path: &Path) -> u64 {
