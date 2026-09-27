@@ -377,9 +377,14 @@ looked up in whichever table holds it. Verified against the `beta` source
 
 
 **DeepSeek Harness (`dsh`)** (2026-09-19). dsh files one directory per session under the same
-encoded-cwd bucket pi uses — `$DSH_HOME/sessions/--<cwd>--/<session id>/session.v3.jsonl.zstd`,
+encoded-cwd bucket pi uses — `$DSH_HOME/sessions/--<cwd>--/<session id>/session.vN.jsonl.zstd`,
 with 0.x's `session.jsonl.zstd` and its `session-` prefixed id still on disk — and
-`$DSH_HOME` else `~/.dsh` picks the home. Two properties drive the reader. The transcript is
+`$DSH_HOME` else `~/.dsh` picks the home. The file name is versioned: version 0 keeps
+`session.jsonl.zstd`, and each later format generation adds `.vN` (`session.v4.jsonl.zstd`
+when 0.1.7 was installed). A migration publishes the new generation but leaves the old file
+in place, so discovery takes the **highest generation** in the directory — the same rule
+dsh's own session-log reader uses, not the newest mtime. Two properties drive the reader.
+The transcript is
 JSONL appended **one zstd frame per flush** (a 91-line session on this machine held 28
 frames), so the reader walks the frame chain rather than stopping at the first frame;
 decoding stays in process (`ruzstd`), because shelling out to `zstd` would put a process
@@ -402,3 +407,16 @@ chain, the store layout) and the shipped `@deepseek-ai/dsh-shell-env`
 screen text — `recent-unwrapped` without `--lines`, so one viewport: 79 lines of a
 4802-character reply, its input box and the model footer included — which is the report that
 prompted the entry.
+
+**dsh format generations** (2026-09-27, `fix/last-dsh-transcripts`). The reader originally
+hard-coded `session.v3.jsonl.zstd` and 0.x's `session.jsonl.zstd` as the only two names. dsh
+0.1.7 writes `session.v4.jsonl.zstd`, so every live session became invisible: the v4-only
+directory matched no name, `find_transcript` returned `None`, and the pane fell back to the
+same viewport of screen text this entry exists to prevent. The v4 events were byte-for-byte
+the shape the parser already read (`assistant/message` under `data.message.content`,
+`user/message` under `data.content`); only the file name had moved. Discovery now parses the
+canonical generation basename (`session[.vN].jsonl.zstd`, version 0 when there is no tag)
+and takes the highest version, matching `@deepseek-ai/dsh-session-format`'s
+`CANONICAL_LOG_FILENAME` and dsh-tui 0.11.0's `selectGenerationLog`. Verified live against
+`~/.dsh/sessions` (v4-only sessions under two buckets) and with v4 and mixed-generation
+fixtures.

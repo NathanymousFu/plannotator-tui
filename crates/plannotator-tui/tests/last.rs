@@ -298,6 +298,7 @@ fn herdr_open_rejects_newest_by_name() {
 }
 
 const DSH_SESSION: &str = "11111111-1111-4111-8111-111111111111";
+const DSH_V4_SESSION: &str = "55555555-5555-4555-8555-555555555555";
 
 /// The fixture dsh transcript for `/work/project`, as dsh files it: a uuid directory under
 /// the bucket its encoded cwd names, holding one zstd frame chain.
@@ -379,4 +380,39 @@ fn a_dsh_session_without_a_reply_says_what_it_looked_in() {
     assert!(stderr.contains("no dsh session for /work/elsewhere"), "{stderr}");
     assert!(stderr.contains("--work-elsewhere--"), "the bucket it looked in: {stderr}");
     std::fs::remove_dir_all(&home).expect("cleanup");
+}
+
+#[test]
+fn print_reads_the_newest_dsh_format_generation() {
+    // dsh 0.1.7 writes `session.v4.jsonl.zstd`; the reader must not fall back to the pane's
+    // screen text because it only knew the v3 name.
+    let root = temp_dir("dsh v4");
+    let home = root.join("dsh home ü");
+    let dir = home
+        .join("sessions")
+        .join(pi::encoded_dir(std::path::Path::new("/work/modern")))
+        .join(DSH_V4_SESSION);
+    std::fs::create_dir_all(&dir).expect("session dir");
+    let fixture =
+        fixtures().join("dsh/sessions/--work-modern--").join(DSH_V4_SESSION).join("session.v4.jsonl.zstd");
+    std::fs::copy(&fixture, dir.join("session.v4.jsonl.zstd")).expect("fixture copy");
+
+    let by_cwd = bin()
+        .env("DSH_HOME", &home)
+        .env("PLANNOTATOR_TUI_CWD", "/work/modern")
+        .args(["last", "--host", "dsh", "--print"])
+        .output()
+        .expect("runs");
+    assert!(by_cwd.status.success(), "{}", String::from_utf8_lossy(&by_cwd.stderr));
+    assert_eq!(String::from_utf8_lossy(&by_cwd.stdout).trim_end(), "modern reply");
+
+    let by_id = bin()
+        .env("DSH_HOME", &home)
+        .env("PLANNOTATOR_TUI_CWD", "/work/modern")
+        .args(["last", "--host", "dsh", "--session-id", DSH_V4_SESSION, "--print"])
+        .output()
+        .expect("runs");
+    assert!(by_id.status.success(), "{}", String::from_utf8_lossy(&by_id.stderr));
+    assert_eq!(String::from_utf8_lossy(&by_id.stdout).trim_end(), "modern reply");
+    std::fs::remove_dir_all(&root).expect("cleanup");
 }

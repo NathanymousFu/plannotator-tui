@@ -18,6 +18,7 @@ const PROJECT: &str = "11111111-1111-4111-8111-111111111111";
 const EMPTY: &str = "22222222-2222-4222-8222-222222222222";
 const SUBAGENT: &str = "33333333-3333-4333-8333-333333333333";
 const LEGACY: &str = "session-44444444-4444-4444-8444-444444444444";
+const MODERN: &str = "55555555-5555-4555-8555-555555555555";
 
 struct Store {
     root: PathBuf,
@@ -132,6 +133,49 @@ fn the_newest_session_holding_a_reply_wins_over_later_empty_and_subagent_session
 fn a_bucket_without_a_session_yields_nothing() {
     let store = Store::new("missing");
     assert_eq!(find_transcript(&store.root, Path::new("/work/elsewhere")), None);
+    fs::remove_dir_all(&store.root).expect("cleanup");
+}
+
+#[test]
+fn a_session_in_the_newest_format_generation_is_found_by_cwd_and_by_id() {
+    // dsh 0.1.7 writes `session.v4.jsonl.zstd`; a v4-only directory must not fall back to
+    // the pane's screen text.
+    let store = Store::new("generation");
+    let expected = store.root.join("--work-modern--").join(MODERN).join("session.v4.jsonl.zstd");
+    assert_eq!(find_transcript(&store.root, Path::new("/work/modern")), Some(expected.clone()));
+    assert_eq!(
+        find_transcript_by_id(&store.root, Path::new("/work/modern"), MODERN).expect("looks"),
+        Some(expected)
+    );
+    fs::remove_dir_all(&store.root).expect("cleanup");
+}
+
+#[test]
+fn the_newest_generation_in_a_directory_wins_over_an_older_one() {
+    // A migration publishes `session.vN` beside the generation it replaces; the highest
+    // version is the one dsh reads, whatever the mtimes say.
+    let store = Store::new("migrated");
+    let v4 = store.root.join("--work-project--").join(PROJECT).join("session.v4.jsonl.zstd");
+    fs::copy(fixtures().join("--work-modern--").join(MODERN).join("session.v4.jsonl.zstd"), &v4)
+        .expect("copy");
+    store.session("--work-project--", PROJECT, "session.v3.jsonl.zstd", 0);
+    store.session("--work-project--", PROJECT, "session.v4.jsonl.zstd", 60);
+
+    assert_eq!(find_transcript(&store.root, Path::new("/work/project")), Some(v4.clone()));
+    assert_eq!(
+        find_transcript_by_id(&store.root, Path::new("/work/project"), PROJECT).expect("looks"),
+        Some(v4)
+    );
+    fs::remove_dir_all(&store.root).expect("cleanup");
+}
+
+#[test]
+fn a_v4_event_carries_the_same_message_shape_as_v3() {
+    let store = Store::new("v4 reply");
+    let path = store.root.join("--work-modern--").join(MODERN).join("session.v4.jsonl.zstd");
+    let messages = parse_messages(&read_transcript(&path).expect("decodes"), 25);
+    assert_eq!(texts(Role::Assistant, &messages), vec!["modern reply"]);
+    assert_eq!(texts(Role::Human, &messages), vec!["modern prompt"]);
     fs::remove_dir_all(&store.root).expect("cleanup");
 }
 
