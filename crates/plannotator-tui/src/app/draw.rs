@@ -189,7 +189,7 @@ impl App {
                 buf.set_style(Rect { x: doc.x + col as u16, y: screen_y, width: 1, height: 1 }, style);
             }
 
-            if let Some(cols) = self.selection.and_then(|s| s.columns_on(row_index, row.cells.len().max(1))) {
+            if let Some(cols) = self.selection.and_then(|s| s.columns_on(row_index, row)) {
                 let start = cols.start.min(usize::from(doc.width)) as u16;
                 let end = cols.end.min(usize::from(doc.width)) as u16;
                 if end > start {
@@ -198,10 +198,13 @@ impl App {
                 }
             }
 
-            // Keyboard cursor, visible while selecting with the keyboard.
+            // Keyboard cursor, visible while selecting with the keyboard, as wide as the
+            // character under it.
             if doc_focused && self.selection.is_some_and(|s| s.dragging) && row_index == self.cursor.0 {
-                let x = doc.x + (self.cursor.1.min(usize::from(doc.width).saturating_sub(1))) as u16;
-                buf.set_style(Rect { x, y: screen_y, width: 1, height: 1 }, Style::new().bg(CURSOR_BG));
+                let column = self.cursor.1.min(usize::from(doc.width).saturating_sub(1));
+                let width = row.char_width(column).min(usize::from(doc.width) - column);
+                let rect = Rect { x: doc.x + column as u16, y: screen_y, width: width as u16, height: 1 };
+                buf.set_style(rect, Style::new().bg(CURSOR_BG));
             }
 
             let marker = match (block == self.selected, row_has_annotation) {

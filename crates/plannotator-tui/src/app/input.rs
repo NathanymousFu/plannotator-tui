@@ -226,10 +226,7 @@ impl App {
             KeyCode::Char('w') => self.move_word(1),
             KeyCode::Char('b') => self.move_word(-1),
             KeyCode::Char('0') | KeyCode::Home => self.cursor.1 = 0,
-            KeyCode::Char('$') | KeyCode::End => {
-                self.cursor.1 =
-                    self.open.layout.row(self.cursor.0).map_or(0, |r| r.cells.len().saturating_sub(1));
-            }
+            KeyCode::Char('$') | KeyCode::End => self.go_line_end(),
             _ => {}
         }
         if let Some(sel) = self.selection.as_mut() {
@@ -239,12 +236,32 @@ impl App {
     }
 
     /// Move the keyboard cursor by rows/columns, skipping gap rows and clamping to text.
+    /// A column step moves a whole character, so a wide (CJK) character takes one press.
     fn move_cursor(&mut self, rows: i64, cols: i64) {
         let total = self.open.layout.total_rows;
         if total == 0 {
             return;
         }
-        let mut row = self.cursor.0;
+        let row = self.step_row(self.cursor.0, rows, total);
+        let Some(line) = self.open.layout.row(row) else { return };
+        let at = line.clamp_column(self.cursor.1);
+        let column = match cols {
+            // A vertical move keeps the column, snapped back onto a character start.
+            0 => at,
+            1.. => line.next_char(at),
+            _ => line.prev_char(at),
+        };
+        self.cursor = (row, column);
+        if let Some(block) = self.open.layout.block_at_row(row) {
+            self.selected = block;
+        }
+        self.ensure_cursor_visible();
+    }
+
+    /// The row `rows` away, skipping the gap rows between blocks and stopping at the
+    /// document's first and last text row.
+    fn step_row(&self, from: usize, rows: i64, total: usize) -> usize {
+        let mut row = from;
         for _ in 0..rows.unsigned_abs() {
             let next = if rows > 0 { row + 1 } else { row.saturating_sub(1) };
             if next >= total || next == row {
@@ -259,32 +276,20 @@ impl App {
                 }
             }
         }
-        let width = self.open.layout.row(row).map_or(0, |r| r.cells.len());
-        let col = (self.cursor.1 as i64 + cols).clamp(0, width.saturating_sub(1) as i64) as usize;
-        self.cursor = (row, col);
-        if let Some(block) = self.open.layout.block_at_row(row) {
-            self.selected = block;
-        }
-        self.ensure_cursor_visible();
+        row
     }
 
     /// Jump to the next (+1) or previous (-1) word start on the current row.
     fn move_word(&mut self, direction: i64) {
         let Some(row) = self.open.layout.row(self.cursor.0) else { return };
-        let text = row.line.to_string();
-        let chars: Vec<char> = text.chars().collect();
-        let is_boundary = |i: usize| {
-            let here = chars.get(i).is_some_and(|c| !c.is_whitespace());
-            let before = i == 0 || chars.get(i - 1).is_some_and(char::is_ascii_whitespace);
-            here && before
-        };
-        let col = self.cursor.1;
-        let next = if direction > 0 {
-            (col + 1..chars.len()).find(|&i| is_boundary(i)).unwrap_or(chars.len().saturating_sub(1))
-        } else {
-            (0..col).rev().find(|&i| is_boundary(i)).unwrap_or(0)
-        };
-        self.cursor.1 = next;
+        self.cursor.1 = row.word_start(self.cursor.1, direction);
+    }
+
+    /// Put the cursor on the row's last character, not on its trailing cell.
+    fn go_line_end(&mut self) {
+        if let Some(row) = self.open.layout.row(self.cursor.0) {
+            self.cursor.1 = row.char_start(row.cells.len().saturating_sub(1));
+        }
     }
 
     fn text_key(&mut self, key: KeyEvent) -> Result<()> {
@@ -480,7 +485,7 @@ impl App {
         let mut bounds: Option<(usize, usize)> = None;
         for row in a.0..=b.0 {
             let Some(r) = self.open.layout.row(row) else { continue };
-            let cols = sel.columns_on(row, r.cells.len()).unwrap_or(0..0);
+            let cols = sel.columns_on(row, r).unwrap_or(0..0);
             for offset in r.cells.iter().skip(cols.start).take(cols.len()).flatten() {
                 bounds =
                     Some(bounds.map_or((*offset, *offset), |(lo, hi)| (lo.min(*offset), hi.max(*offset))));
