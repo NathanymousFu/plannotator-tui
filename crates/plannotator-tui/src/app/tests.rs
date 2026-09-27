@@ -16,7 +16,7 @@ use ratatui::crossterm::event::{
 use ratatui::style::Color;
 
 use super::send::SendState;
-use super::{App, Mode};
+use super::{App, Focus, Mode};
 use crate::delivery::{Delivery, Discard, HerdrAgent};
 
 /// A fresh, empty data directory for one test. `App::open` resolves the real one, and a
@@ -48,6 +48,12 @@ fn app_with(content: &str, delivery: Box<dyn Delivery>) -> App {
 /// Press one character key.
 fn press(app: &mut App, ch: char) {
     app.handle_event(&key(KeyCode::Char(ch), KeyModifiers::NONE)).expect("press");
+}
+
+/// The source text a finished selection covers.
+fn selected_text(app: &App) -> &str {
+    let pending = app.pending.as_ref().expect("a finished selection");
+    app.open.doc.source.get(pending.range.clone()).expect("selection within the source")
 }
 
 /// `App::open_message` on `candidates()`, isolated like `app`.
@@ -457,6 +463,37 @@ fn pasting_into_the_comment_box_keeps_newlines() {
 }
 
 #[test]
+fn a_selection_can_start_mid_block() {
+    let mut app = app(Box::new(Discard));
+    draw(&mut app);
+    // `j` picks the paragraph, `w` walks the cursor onto its second word: a selection
+    // started here begins at "thing", not at the block's first character.
+    for ch in ['j', 'w'] {
+        press(&mut app, ch);
+    }
+    assert_eq!(app.cursor, (2, 6), "the cursor sits on 'thing'");
+    press(&mut app, 'v');
+    press(&mut app, '$');
+    app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("finish");
+    assert_eq!(selected_text(&app), "thing");
+}
+
+#[test]
+fn the_cursor_column_survives_a_block_move() {
+    let mut app = app_with("alpha beta\n\ngamma delta\n", Box::new(Discard));
+    draw(&mut app);
+    for ch in ['j', 'w', 'k'] {
+        press(&mut app, ch);
+    }
+    assert_eq!(app.cursor, (0, 6), "the cursor kept its column on the first block");
+    press(&mut app, 'j');
+    press(&mut app, 'v');
+    press(&mut app, '$');
+    app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("finish");
+    assert_eq!(selected_text(&app), "delta", "the column was never pulled back to zero");
+}
+
+#[test]
 fn one_press_moves_one_wide_character() {
     let mut app = app_with("你好世界\n", Box::new(Discard));
     draw(&mut app);
@@ -467,18 +504,95 @@ fn one_press_moves_one_wide_character() {
     press(&mut app, 'h');
     assert_eq!(app.cursor, (0, 2), "and back again");
     app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("finish");
-    let pending = app.pending.as_ref().expect("a finished selection");
-    assert_eq!(app.open.doc.source.get(pending.range.clone()), Some("你好"));
+    assert_eq!(selected_text(&app), "你好");
 }
 
 #[test]
 fn a_wide_last_character_is_not_split_by_the_cursor() {
     let mut app = app_with("你好世界\n", Box::new(Discard));
     draw(&mut app);
-    press(&mut app, 'v');
     press(&mut app, '$');
     assert_eq!(app.cursor, (0, 6), "the cursor lands on 界, not on its second cell");
     let doc = app.geometry.doc;
     let cursor = frame(&mut app).cell((doc.x + 6, doc.y)).expect("cursor cell").bg;
     assert_ne!(cursor, Color::Reset, "the cursor is drawn on the character");
+}
+
+#[test]
+fn o_moves_the_cursor_to_the_end_that_can_be_trimmed() {
+    let mut app = app(Box::new(Discard));
+    draw(&mut app);
+    press(&mut app, 'j');
+    press(&mut app, 'v');
+    for _ in 0..7 {
+        press(&mut app, 'l');
+    }
+    press(&mut app, 'o');
+    assert_eq!(app.cursor, (2, 0), "`o` hands the cursor the range's start");
+    for _ in 0..6 {
+        press(&mut app, 'l');
+    }
+    app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("finish");
+    assert_eq!(selected_text(&app), "th", "the range was trimmed from the left");
+}
+
+#[test]
+fn the_cursor_shows_where_a_selection_would_start() {
+    let mut app = app(Box::new(Discard));
+    draw(&mut app);
+    press(&mut app, 'j');
+    press(&mut app, 'w');
+    let doc = app.geometry.doc;
+    let cursor = frame(&mut app).cell((doc.x + 6, doc.y + 2)).expect("cursor cell").bg;
+    let text = frame(&mut app).cell((doc.x + 5, doc.y + 2)).expect("text cell").bg;
+    assert_ne!(cursor, text, "the cursor is visible before `v`");
+    // With a finished selection the toolbar speaks for it and the cursor steps aside.
+    press(&mut app, 'v');
+    press(&mut app, 'l');
+    app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("finish");
+    let doc = app.geometry.doc;
+    let cursor = frame(&mut app).cell((doc.x + 6, doc.y + 2)).expect("cursor cell").bg;
+    assert_eq!(cursor, Color::Reset, "no cursor while a selection waits");
+}
+
+#[test]
+fn a_click_that_lands_off_the_text_still_leaves_a_usable_cursor() {
+    let mut app = app(Box::new(Discard));
+    draw(&mut app);
+    // Past the end of "first thing": the cursor lands on its last character.
+    app.handle_event(&click_at(40, 3)).expect("click past the text");
+    assert_eq!(app.cursor, (2, 10));
+    // The empty row between the heading and the paragraph pulls the cursor back onto text.
+    app.handle_event(&click_at(5, 2)).expect("click the gap");
+    assert_eq!(app.cursor, (2, 0));
+    app.handle_event(&key(KeyCode::Esc, KeyModifiers::NONE)).expect("clear");
+    press(&mut app, 'v');
+    press(&mut app, 'l');
+    app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("finish");
+    assert_eq!(selected_text(&app), "fi");
+}
+
+#[test]
+fn v_after_scrolling_starts_inside_the_window() {
+    let mut app = app_with(&"line\n\n".repeat(40), Box::new(Discard));
+    draw(&mut app);
+    app.handle_event(&key(KeyCode::Char('d'), KeyModifiers::CONTROL)).expect("scroll");
+    assert!(app.scroll > 0, "the document scrolled away from the cursor");
+    press(&mut app, 'v');
+    press(&mut app, 'l');
+    app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("finish");
+    let at = app.pending.as_ref().expect("a selection").at;
+    let window = app.scroll..app.scroll + usize::from(app.geometry.doc.height);
+    assert!(window.contains(&at.0), "anchored at {at:?}, window {window:?}");
+    assert_eq!(selected_text(&app), "li");
+}
+
+#[test]
+fn the_rail_brings_the_cursor_to_the_note() {
+    let mut app = app_with("one\n\ntwo\n\nthree\n", Box::new(Discard));
+    draw(&mut app);
+    app.add_quote_annotation("three", Kind::Comment, "note".into()).expect("annotation");
+    app.focus = Focus::Rail;
+    press(&mut app, 'j');
+    assert_eq!(app.cursor.0, 4, "the cursor is on the annotated paragraph");
 }

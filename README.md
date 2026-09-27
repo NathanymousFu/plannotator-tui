@@ -49,7 +49,8 @@ plannotator-tui docs               # a folder: file tree on the left, counts per
 plannotator-tui last               # your coding agent's recent replies, pick one, annotate it
 ```
 
-Drag with the mouse (or `v` and move) to select, then `a` 👍 · `c` 💬 · `d` ✗. `E` copies the
+Put the cursor where an annotation should start with `hjkl` `w` `b` `0` `$`, press `v` and move
+to extend it — or drag with the mouse — then `a` 👍 · `c` 💬 · `d` ✗. `E` copies the
 feedback to the clipboard as numbered annotations (`# Annotations on plan.md`, `## Annotation 1
 (line 12)`, …). Every annotation is saved as JSON the moment you make it; `q` closes.
 
@@ -75,7 +76,7 @@ dimmed. The keys also work without opening the menu.
 | Where | Keys |
 |---|---|
 | anywhere | `Tab` cycle tree · document · notes; `E` send; `t` tree; `r` reload; `q` quit |
-| document | `j`/`k` block; `c` comment on the block; `x` clear its annotations; `v` select with `hjkl` `w` `b` `0` `$` |
+| document | `j`/`k` block; `hjkl` `w` `b` `0` `$` move the cursor; `v` select from the cursor (`o` swaps ends); `c` comment on the block; `x` clear its annotations |
 | toolbar | `a` looks good · `c` comment · `d` delete · `Esc` |
 | notes | `j`/`k`; `e` edit; `x` remove; click a bubble |
 | file/folder review | `E` send new · `m` review menu (`R` resend all · `F` finish review · `U` undo · `H` archive) |

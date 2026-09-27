@@ -1,10 +1,10 @@
-//! A mouse selection in document coordinates, and its conversion to a source range.
+//! A selection in document coordinates, and its conversion to a source range.
 
 use std::ops::Range;
 
 use crate::wrap::Row;
 
-/// Anchor and head are (row, column) in document coordinates.
+/// Anchor and head are (row, column) in document coordinates; columns count screen cells.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Selection {
     anchor: (usize, usize),
@@ -23,6 +23,12 @@ impl Selection {
 
     pub(super) fn set_head(&mut self, head: (usize, usize)) {
         self.head = head;
+    }
+
+    /// Hand the cursor the other end, so the next motion moves where the range began.
+    pub(super) fn swap_ends(&mut self) -> (usize, usize) {
+        std::mem::swap(&mut self.anchor, &mut self.head);
+        self.head
     }
 
     pub(super) fn ordered(&self) -> ((usize, usize), (usize, usize)) {
