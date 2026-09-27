@@ -363,3 +363,23 @@ looked up in whichever table holds it. Verified against the `beta` source
 (`packages/core/src/session/sql.ts`, `packages/schema/src/session-message.ts`,
 `packages/util/src/global-roots.ts`) and a mixed-schema fixture reproducing the report.
 
+## 15. The cursor starts the selection, and it moves by character (2026-09-27)
+
+`v` can only start a range where the cursor already is, so the cursor is now drawn in browse
+mode too, not only while extending, and `j`/`k` keep its column. Both used to reset to the
+first character of the selected block, which is why every keyboard annotation began at the
+start of its block with no way to begin mid-line. `o` hands the cursor the other end of the
+range, so a selection that began too early is trimmed rather than drawn again.
+
+`cursor` and `Selection` still count screen cells — the layout, the gutter markers and the
+drawing all speak cells — but every motion steps one character. A wide (CJK) character owns
+two cells that share one source offset, so cell-wise `l` needed two presses and the second
+one moved nothing; `Row::char_start`/`next_char`/`prev_char`/`char_width` are the only place
+that knows the difference, and `word_start` maps word motion through the same character list
+so columns stay honest on a CJK line.
+
+Mouse input stays in raw cells: a press anchors the drag where the user pressed, and a wide
+character under either end is included whole by `columns_on`/`finish_selection`. The cursor
+that follows a press is snapped onto a character start (and off gap rows) so that pressing
+`v` after clicking always has somewhere to grow.
+

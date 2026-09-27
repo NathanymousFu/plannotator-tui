@@ -156,6 +156,9 @@ impl App {
             && let Some(block) = self.open.doc.block_containing(target.range.start)
         {
             self.selected = block;
+            // The cursor follows the note into view, so `v` continues from what is on screen.
+            let row = self.open.layout.first_row_in_range(block, target.range);
+            self.cursor = self.snap_cursor((row.unwrap_or(self.cursor.0), self.cursor.1));
             self.ensure_selected_visible();
         }
         Ok(())
@@ -184,17 +187,22 @@ impl App {
             }
             (KeyCode::Char('v'), _) => {
                 self.clear_selection();
+                self.cursor = self.startable_cursor();
                 self.selection = Some(Selection::start(self.cursor));
-                self.status = Some("visual: move to extend, enter to select, esc to cancel".into());
+                self.status = Some("visual: move · o swap ends · enter select · esc cancel".into());
             }
             (KeyCode::Char('j') | KeyCode::Down, _) => self.select_block(self.selected + 1),
             (KeyCode::Char('k') | KeyCode::Up, _) => self.select_block(self.selected.saturating_sub(1)),
             (KeyCode::Char('h') | KeyCode::Left, _) => self.move_cursor(0, -1),
             (KeyCode::Char('l') | KeyCode::Right, _) => self.move_cursor(0, 1),
+            (KeyCode::Char('w'), _) => self.move_word(1),
+            (KeyCode::Char('b'), _) => self.move_word(-1),
+            (KeyCode::Char('0') | KeyCode::Home, _) => self.cursor.1 = 0,
+            (KeyCode::Char('$') | KeyCode::End, _) => self.go_line_end(),
             (KeyCode::Char('d'), KeyModifiers::CONTROL) | (KeyCode::PageDown, _) => self.scroll_by(page / 2),
             (KeyCode::Char('u'), KeyModifiers::CONTROL) | (KeyCode::PageUp, _) => self.scroll_by(-page / 2),
-            (KeyCode::Char('g') | KeyCode::Home, _) => self.select_block(0),
-            (KeyCode::Char('G') | KeyCode::End, _) => {
+            (KeyCode::Char('g'), _) => self.select_block(0),
+            (KeyCode::Char('G'), _) => {
                 self.select_block(self.open.doc.blocks.len().saturating_sub(1));
             }
             (KeyCode::Char('c') | KeyCode::Enter, _) => {
@@ -232,6 +240,13 @@ impl App {
             KeyCode::Char('b') => self.move_word(-1),
             KeyCode::Char('0') | KeyCode::Home => self.cursor.1 = 0,
             KeyCode::Char('$') | KeyCode::End => self.go_line_end(),
+            // `o` hands the cursor the other end, so a range that began too early can be
+            // trimmed where it started instead of selected again.
+            KeyCode::Char('o') => {
+                if let Some(sel) = self.selection.as_mut() {
+                    self.cursor = sel.swap_ends();
+                }
+            }
             _ => {}
         }
         if let Some(sel) = self.selection.as_mut() {
@@ -382,7 +397,7 @@ impl App {
                     // A double-click selects the whole block and offers the toolbar for it.
                     self.selected = block;
                     self.selection = None;
-                    self.cursor = pos;
+                    self.cursor = self.snap_cursor(pos);
                     self.status = None;
                     self.pending = Some(Pending { range, at: pos });
                     return Ok(());
@@ -390,7 +405,7 @@ impl App {
                 if let Some(block) = self.open.layout.block_at_row(pos.0) {
                     self.selected = block;
                 }
-                self.cursor = pos;
+                self.cursor = self.snap_cursor(pos);
                 self.pending = None;
                 self.selection = Some(Selection::start(pos));
             }

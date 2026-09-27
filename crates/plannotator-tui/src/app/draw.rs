@@ -153,6 +153,10 @@ impl App {
         let placed = self.open.store.placed();
         let text_selection_active = self.selection.is_some();
         let doc_focused = self.focus == Focus::Document;
+        // The keyboard cursor is where `v` starts a selection, so it is drawn while the
+        // document is browsable, and not while a finished selection waits on the toolbar.
+        let cursor_shown =
+            doc_focused && matches!(self.mode, Mode::Browse | Mode::ConfirmQuit) && self.pending.is_none();
         let buf = frame.buffer_mut();
 
         for y in 0..doc.height {
@@ -198,9 +202,8 @@ impl App {
                 }
             }
 
-            // Keyboard cursor, visible while selecting with the keyboard, as wide as the
-            // character under it.
-            if doc_focused && self.selection.is_some_and(|s| s.dragging) && row_index == self.cursor.0 {
+            // Keyboard cursor, as wide as the character under it.
+            if cursor_shown && row_index == self.cursor.0 {
                 let column = self.cursor.1.min(usize::from(doc.width).saturating_sub(1));
                 let width = row.char_width(column).min(usize::from(doc.width) - column);
                 let rect = Rect { x: doc.x + column as u16, y: screen_y, width: width as u16, height: 1 };
@@ -419,7 +422,7 @@ impl App {
             _ if self.pending.is_some() => "a looks good · c comment · d delete · esc clear ",
             Focus::Tree => "j/k · enter open · E send · S send+quit · t hide · q quit ",
             Focus::Rail => "j/k · e edit · x remove · S send+quit · tab · q quit ",
-            Focus::Document => "drag or v select · c comment · E send · S send+quit · tab · q quit ",
+            Focus::Document => "hjkl/w/b move · v select · c comment · E send · S send+quit · q quit ",
         };
         // The status must stay readable at any width, so the key help yields columns to it
         // (and is clipped) rather than the other way round.

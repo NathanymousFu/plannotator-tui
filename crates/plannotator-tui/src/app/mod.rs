@@ -151,7 +151,7 @@ pub(crate) struct App {
     selected: usize,
     selection: Option<Selection>,
     pending: Option<Pending>,
-    /// Keyboard cursor for visual selection, in document (row, col).
+    /// The keyboard cursor in document (row, cell column): a visual selection starts here.
     cursor: (usize, usize),
     /// Index into the rail's placed annotations.
     rail_cursor: usize,
@@ -410,7 +410,11 @@ impl App {
         self.clear_selection();
         self.selected = block.min(self.open.doc.blocks.len() - 1);
         if let Some(rendered) = self.open.layout.blocks.get(self.selected) {
-            self.cursor = (rendered.first_row, 0);
+            // The cursor is where a selection starts, so a block move keeps its column
+            // instead of pulling it back to the line's first character.
+            let first_row = rendered.first_row;
+            let column = self.open.layout.row(first_row).map_or(0, |r| r.clamp_column(self.cursor.1));
+            self.cursor = (first_row, column);
         }
         self.ensure_selected_visible();
     }
@@ -434,6 +438,28 @@ impl App {
         } else if self.cursor.0 >= self.scroll + height {
             self.scroll = self.cursor.0 + 1 - height;
         }
+    }
+
+    /// `at` snapped onto real text. A reflow, a click past the end of a line or a click on
+    /// the gap between blocks could otherwise leave the cursor where no selection can grow.
+    fn snap_cursor(&self, at: (usize, usize)) -> (usize, usize) {
+        if let Some(row) = self.open.layout.row(at.0) {
+            return (at.0, row.clamp_column(at.1));
+        }
+        self.open.layout.blocks.get(self.selected).map_or(at, |block| (block.first_row, 0))
+    }
+
+    /// Where a keyboard selection can start: on real text and inside the drawn window, so
+    /// `v` after a scroll or a jump between notes does not anchor out of sight.
+    fn startable_cursor(&self) -> (usize, usize) {
+        let height = usize::from(self.geometry.doc.height.max(1));
+        let (row, column) = self.snap_cursor(self.cursor);
+        if (self.scroll..self.scroll + height).contains(&row) {
+            return (row, column);
+        }
+        let row =
+            (self.scroll..self.scroll + height).find(|&r| self.open.layout.row(r).is_some()).unwrap_or(row);
+        self.snap_cursor((row, column))
     }
 
     fn scroll_by(&mut self, delta: i64) {
