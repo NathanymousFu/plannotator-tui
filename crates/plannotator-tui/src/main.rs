@@ -9,6 +9,7 @@ mod delivery;
 mod doc;
 mod export;
 mod herdr;
+mod input_source;
 mod last;
 mod layout;
 mod srcmap;

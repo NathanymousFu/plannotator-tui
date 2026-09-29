@@ -257,6 +257,7 @@ fn interactive(path: &PathBuf) -> Result<()> {
 
 /// Own the terminal for one app: `build` gets the document width the screen allows.
 pub(crate) fn run_ui(build: impl FnOnce(usize) -> Result<App>) -> Result<()> {
+    crate::input_source::switch_to_abc();
     let mut terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
     let _ = execute!(stdout(), EnableBracketedPaste);
