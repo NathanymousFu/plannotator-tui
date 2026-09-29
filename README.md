@@ -49,6 +49,9 @@ plannotator-tui docs               # a folder: file tree on the left, counts per
 plannotator-tui last               # your coding agent's recent replies, pick one, annotate it
 ```
 
+On macOS, opening an interactive review switches the current input source to ABC so review
+shortcuts work immediately. Other platforms and non-interactive commands leave it unchanged.
+
 Drag with the mouse (or `v` and move) to select, then `a` 👍 · `c` 💬 · `d` ✗. `E` copies the
 feedback to the clipboard as numbered annotations (`# Annotations on plan.md`, `## Annotation 1
 (line 12)`, …). Every annotation is saved as JSON the moment you make it; `q` closes.
