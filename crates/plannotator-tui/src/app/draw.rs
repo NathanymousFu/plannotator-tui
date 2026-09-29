@@ -414,9 +414,9 @@ impl App {
         }
         let help = match self.focus {
             _ if self.pending.is_some() => "a looks good · c comment · d delete · esc clear ",
-            Focus::Tree => "j/k · enter open · E send · t hide · q quit ",
-            Focus::Rail => "j/k · e edit · x remove · tab · q quit ",
-            Focus::Document => "drag or v select · c comment · E send · tab · q quit ",
+            Focus::Tree => "j/k · enter open · E send · S send+quit · t hide · q quit ",
+            Focus::Rail => "j/k · e edit · x remove · S send+quit · tab · q quit ",
+            Focus::Document => "drag or v select · c comment · E send · S send+quit · tab · q quit ",
         };
         // The status must stay readable at any width, so the key help yields columns to it
         // (and is clipped) rather than the other way round.

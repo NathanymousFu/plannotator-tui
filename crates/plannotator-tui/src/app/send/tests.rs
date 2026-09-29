@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use plannotator_tui_schema::{DocumentSource, Kind, Provenance};
 
-use crate::app::review_test_support::{RecordingDelivery, file_app, folder_app, press};
+use crate::app::review_test_support::{Outcome, RecordingDelivery, file_app, folder_app, press};
 use crate::app::send::SendState;
 use crate::app::{Focus, Mode, Open};
 use crate::delivery::{Delivery, DeliveryError};
@@ -18,6 +18,34 @@ struct EditingDelivery {
     document: Document,
     annotation_id: String,
     saved: Rc<RefCell<Vec<u8>>>,
+}
+
+#[test]
+fn capital_s_sends_pending_feedback_and_quits() {
+    let (root, mut app, delivery) = file_app("send-and-quit");
+    app.add_quote_annotation("one", Kind::Comment, "A".into()).expect("annotation");
+
+    press(&mut app, 'S');
+
+    assert_eq!(delivery.calls.borrow().len(), 1);
+    assert_eq!(app.send_state, SendState::Sent);
+    assert!(app.quit);
+    std::fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn capital_s_keeps_the_review_open_when_sending_fails() {
+    let (root, mut app, delivery) = file_app("failed-send-and-quit");
+    app.add_quote_annotation("one", Kind::Comment, "A".into()).expect("annotation");
+    delivery.outcome.set(Outcome::Failed);
+
+    press(&mut app, 'S');
+
+    assert_eq!(delivery.calls.borrow().len(), 1);
+    assert!(!app.quit);
+    assert_eq!(app.mode, Mode::ConfirmQuit);
+    assert_eq!(app.send_state, SendState::Ready);
+    std::fs::remove_dir_all(root).expect("cleanup");
 }
 
 impl Delivery for EditingDelivery {

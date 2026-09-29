@@ -56,6 +56,11 @@ impl App {
                 return Ok(());
             }
             (KeyCode::Char('E'), _) => return self.send_feedback(),
+            (KeyCode::Char('S'), _) => {
+                self.send_feedback()?;
+                self.request_quit();
+                return Ok(());
+            }
             (KeyCode::Char('m'), _) if self.is_file_review() => {
                 self.open_review_menu();
                 return Ok(());

@@ -12,12 +12,12 @@ cargo build --release
 
 | Where | Keys |
 |---|---|
-| anywhere | `Tab` cycle focus (tree · document · rail) · `E` send feedback (clipboard) · `t` show/hide tree · `r` reload · `q` quit |
+| anywhere | `Tab` cycle focus (tree · document · rail) · `E` send feedback (clipboard) · `S` send and quit · `t` show/hide tree · `r` reload · `q` quit |
 | document | drag with the mouse, or `v` then `hjkl` / `w` `b` / `0` `$` to select; `Enter` confirms · `j`/`k` or click selects a block · `c` comments on the block · `x` clears the block's annotations |
 | selection toolbar | `a` 👍 looks good · `c` 💬 comment (opens a box at the selection) · `d` ✗ delete · `Esc` clears |
 | rail | `j`/`k` move · `e` / `Enter` edit body · `x` remove · click a bubble to focus it |
-| file/folder review | `E` send new · `m` review menu (`R` resend all · `F` finish review · `U` undo · `H` archive) |
-| tree | `j`/`k` move · `Enter` open · `E` send new feedback across files, including collapsed folders · counts show active notes per file |
+| file/folder review | `E` send new · `S` send new and quit · `m` review menu (`R` resend all · `F` finish review · `U` undo · `H` archive) |
+| tree | `j`/`k` move · `Enter` open · `E` send new feedback across files, including collapsed folders · `S` send it and quit · counts show active notes per file |
 | archive | `j`/`k` or ↑/↓ select · `Enter` or click restore · `Esc` close |
 
 Selections and exports are copied to the terminal clipboard (OSC 52).

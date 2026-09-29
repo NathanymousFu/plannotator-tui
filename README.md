@@ -74,12 +74,12 @@ dimmed. The keys also work without opening the menu.
 
 | Where | Keys |
 |---|---|
-| anywhere | `Tab` cycle tree · document · notes; `E` send; `t` tree; `r` reload; `q` quit |
+| anywhere | `Tab` cycle tree · document · notes; `E` send; `S` send and quit; `t` tree; `r` reload; `q` quit |
 | document | `j`/`k` block; `c` comment on the block; `x` clear its annotations; `v` select with `hjkl` `w` `b` `0` `$` |
 | toolbar | `a` looks good · `c` comment · `d` delete · `Esc` |
 | notes | `j`/`k`; `e` edit; `x` remove; click a bubble |
-| file/folder review | `E` send new · `m` review menu (`R` resend all · `F` finish review · `U` undo · `H` archive) |
-| tree | `j`/`k`; `Enter` open; `E` sends new notes across all reviewed files, including collapsed folders |
+| file/folder review | `E` send new · `S` send new and quit · `m` review menu (`R` resend all · `F` finish review · `U` undo · `H` archive) |
+| tree | `j`/`k`; `Enter` open; `E` sends new notes across all reviewed files, including collapsed folders; `S` sends them and quits |
 
 ## Inside Herdr
 
