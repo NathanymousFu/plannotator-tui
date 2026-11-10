@@ -53,6 +53,13 @@ title = "Annotate: agent's last message"
 contexts = ["pane"]
 command = ["./bin/plannotator-tui.exe", "herdr", "last"]
 
+# The newest reply only: the picker stays out of the way.
+[[actions]]
+id = "last-newest"
+title = "Annotate: agent's newest message"
+contexts = ["pane"]
+command = ["./bin/plannotator-tui.exe", "herdr", "last", "--newest"]
+
 # The focused pane's recent output as a review; no default key.
 [[actions]]
 id = "terminal"
