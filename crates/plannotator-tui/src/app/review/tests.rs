@@ -4,8 +4,26 @@ use plannotator_tui_schema::Kind;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent};
 
 use crate::app::review_test_support::{click, draw, file_app, folder_app, press, reopen};
-use crate::app::{Focus, Mode};
+use crate::app::{Focus, InputHook, Mode};
 use crate::store::Location;
+
+#[test]
+fn editing_a_comment_reports_input_entry_and_exit() {
+    let (root, mut app, _) = file_app("edit-lifecycle");
+    app.add_quote_annotation("one", Kind::Comment, "note".into()).expect("annotation");
+    app.focus = Focus::Rail;
+
+    press(&mut app, 'e');
+    assert_eq!(app.take_input_hooks(), vec![InputHook::CommentEntered]);
+    assert!(matches!(app.mode, Mode::Edit(_)));
+
+    press(&mut app, '!');
+    app.handle_event(&Event::Key(KeyEvent::from(KeyCode::Enter))).expect("save edit");
+    assert_eq!(app.take_input_hooks(), vec![InputHook::CommentExited]);
+    assert_eq!(app.mode, Mode::Browse);
+    assert_eq!(app.open.store.placed()[0].annotation.body, "note!");
+    std::fs::remove_dir_all(root).expect("cleanup");
+}
 
 #[test]
 fn finish_undo_and_restore_keep_pending_edits_and_preserve_sent_status() {

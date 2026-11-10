@@ -22,6 +22,18 @@ pub(crate) struct Config {
     pub(crate) last: LastConfig,
     pub(crate) keys: Keymap,
     pub(crate) colors: Colors,
+    pub(crate) hooks: HooksConfig,
+}
+
+/// Optional argv commands run when the comment box opens and closes. A command runs directly,
+/// without a shell, so no quoting is involved; an empty list runs nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub(crate) struct HooksConfig {
+    /// Run when the box opens, before the first keystroke reaches it.
+    pub(crate) comment_input_enter: Vec<String>,
+    /// Run when it closes, once `Enter` has saved the note or `Esc` has dropped it.
+    pub(crate) comment_input_exit: Vec<String>,
 }
 
 /// Which palette the app starts from; `[colors]` adjusts individual roles of it.
@@ -219,6 +231,18 @@ mod tests {
         assert_eq!(config.herdr.placement, Placement::Split);
         assert_eq!(config.herdr.split_direction, SplitDirection::Right);
         assert_eq!(config.herdr.popup_width, "90%");
+    }
+
+    #[test]
+    fn comment_input_hooks_are_argv_commands() {
+        let config = Config::parse(
+            "[hooks]\ncomment_input_enter = [\"im-select\", \"com.apple.inputmethod.SCIM.ITABC\"]\n\
+             comment_input_exit = [\"im-select\", \"com.apple.keylayout.ABC\"]\n",
+        )
+        .expect("parses");
+        assert_eq!(config.hooks.comment_input_enter, ["im-select", "com.apple.inputmethod.SCIM.ITABC"]);
+        assert_eq!(config.hooks.comment_input_exit, ["im-select", "com.apple.keylayout.ABC"]);
+        assert!(Config::default().hooks.comment_input_enter.is_empty());
     }
 
     #[cfg(windows)]

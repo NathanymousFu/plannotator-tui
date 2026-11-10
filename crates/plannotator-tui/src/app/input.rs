@@ -10,7 +10,7 @@ use super::compose::ComposeAction;
 use super::menu::ReviewAction;
 use super::selection::Selection;
 use super::send::SendState;
-use super::{App, Focus, GUTTER, Mode, Pending, TOOLBAR};
+use super::{App, Focus, GUTTER, InputHook, Mode, Pending, TOOLBAR};
 use crate::delivery::Delivery as _;
 use crate::gate::Gate;
 use crate::keys::{self, Action};
@@ -23,7 +23,8 @@ fn chars_by_column(line: &Line<'_>) -> Vec<char> {
 
 impl App {
     pub(crate) fn handle_event(&mut self, event: &Event) -> Result<()> {
-        match event {
+        let was_comment_input = Self::comment_input_open(&self.mode);
+        let result = match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => match &self.mode {
                 Mode::Browse => self.browse_key(*key),
                 Mode::ConfirmQuit => self.confirm_quit_key(*key),
@@ -69,7 +70,19 @@ impl App {
                 Ok(())
             }
             _ => Ok(()),
+        };
+        match (was_comment_input, Self::comment_input_open(&self.mode)) {
+            (false, true) => self.input_hooks.push(InputHook::CommentEntered),
+            (true, false) => self.input_hooks.push(InputHook::CommentExited),
+            _ => {}
         }
+        result
+    }
+
+    /// Whether the mode owns the keyboard for typing a note. Both `Compose` and `Edit` are
+    /// the comment box, so a hook sees one input opening and closing.
+    fn comment_input_open(mode: &Mode) -> bool {
+        matches!(mode, Mode::Compose | Mode::Edit(_))
     }
 
     fn browse_key(&mut self, key: KeyEvent) -> Result<()> {

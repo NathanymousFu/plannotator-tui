@@ -6,7 +6,7 @@
 
 use std::io::{IsTerminal as _, Write as _, stdout};
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -17,8 +17,8 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::execute;
 
-use crate::app::App;
-use crate::config::Config;
+use crate::app::{App, InputHook};
+use crate::config::{Config, HooksConfig};
 use crate::delivery::{Caller, Clipboard, Delivery, Discard, HerdrAgent};
 use crate::doc::Document;
 use crate::gate::{self, Decision, GateError, ReviewArgs};
@@ -479,7 +479,7 @@ fn run_review(build: impl FnOnce(usize) -> Result<App>) -> Result<Option<Decisio
         app.keys = config.keys;
         app.ui = config.ui;
         app.editor = crate::editor::from_env(|key| std::env::var(key).ok());
-        event_loop(&mut terminal, app)
+        event_loop(&mut terminal, app, &config.hooks)
     });
     release_input(shift_enter);
     ratatui::restore();
@@ -532,7 +532,11 @@ fn run_editor(
     Ok(outcome)
 }
 
-fn event_loop(terminal: &mut ratatui::DefaultTerminal, mut app: App) -> Result<Option<Decision>> {
+fn event_loop(
+    terminal: &mut ratatui::DefaultTerminal,
+    mut app: App,
+    hooks: &HooksConfig,
+) -> Result<Option<Decision>> {
     app.clipboard = true;
     let mut dirty = true;
     while !app.quit {
@@ -559,8 +563,42 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal, mut app: App) -> Result<O
                 app.handle_event(&event::read()?)?;
             }
         }
+        // Between events, never inside one: by now the comment box is fully open or closed.
+        for hook in app.take_input_hooks() {
+            run_input_hook(&mut app, hook, hooks);
+            dirty = true;
+        }
     }
     Ok(app.take_decision())
+}
+
+/// Run the configured command for one comment-box transition. The command's streams are
+/// hidden so it cannot corrupt the screen, and a failure is reported in the footer rather
+/// than ending the review: a missing input-method helper must not cost the user their notes.
+fn run_input_hook(app: &mut App, hook: InputHook, hooks: &HooksConfig) {
+    let (name, command) = match hook {
+        InputHook::CommentEntered => ("comment_input_enter", &hooks.comment_input_enter),
+        InputHook::CommentExited => ("comment_input_exit", &hooks.comment_input_exit),
+    };
+    if let Err(err) = run_hook(command) {
+        app.set_status(format!("{name} failed: {err}"));
+    }
+}
+
+/// Run one argv command directly. An empty command is nothing to run, not an error.
+fn run_hook(command: &[String]) -> Result<()> {
+    let Some((program, arguments)) = command.split_first() else { return Ok(()) };
+    let status = Command::new(program)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .with_context(|| format!("running {program:?}"))?;
+    if !status.success() {
+        anyhow::bail!("{program:?} exited with {status}");
+    }
+    Ok(())
 }
 
 /// Headless timing of the expensive paths: parse, per-block render + align, and reflow.
