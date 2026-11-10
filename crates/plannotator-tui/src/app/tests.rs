@@ -14,7 +14,7 @@ use ratatui::crossterm::event::{
 };
 
 use super::send::SendState;
-use super::{App, Mode};
+use super::{App, InputHook, Mode};
 use crate::delivery::{Delivery, Discard, HerdrAgent};
 
 /// A fresh, empty data directory for one test. `App::open` resolves the real one, and a
@@ -1236,4 +1236,29 @@ fn ctrl_p_in_a_reply_review_still_picks_another_reply() {
     app.handle_event(&Event::Key(KeyEvent::from(KeyCode::Esc))).expect("esc");
     app.handle_event(&Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL))).expect("ctrl+p");
     assert_eq!(app.mode, Mode::Pick);
+}
+
+#[test]
+fn comment_input_reports_opening_and_closing_once_each() {
+    let mut app = app(Box::new(Discard));
+    draw(&mut app);
+    press_char(&mut app, 'c');
+    assert_eq!(app.take_input_hooks(), vec![InputHook::CommentEntered]);
+    assert_eq!(app.mode, Mode::Compose);
+    assert!(app.take_input_hooks().is_empty(), "drained");
+
+    app.handle_event(&key(KeyCode::Esc, KeyModifiers::NONE)).expect("cancel compose");
+    assert_eq!(app.take_input_hooks(), vec![InputHook::CommentExited]);
+    assert_eq!(app.mode, Mode::Browse);
+}
+
+#[test]
+fn a_key_that_keeps_the_comment_box_open_runs_no_hook() {
+    let mut app = app(Box::new(Discard));
+    draw(&mut app);
+    press_char(&mut app, 'c');
+    app.take_input_hooks();
+    press_char(&mut app, 'x');
+    assert!(app.take_input_hooks().is_empty());
+    assert_eq!(app.mode, Mode::Compose);
 }

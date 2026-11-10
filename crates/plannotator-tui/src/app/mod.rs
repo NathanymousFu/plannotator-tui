@@ -77,6 +77,15 @@ enum Mode {
     ReviewMenu,
 }
 
+/// The comment box opening or closing, so the event loop can run a configured `[hooks]`
+/// command. The box itself only records the transition; running a program belongs to the
+/// driver that owns the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InputHook {
+    CommentEntered,
+    CommentExited,
+}
+
 /// Which pane keyboard input goes to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
@@ -236,6 +245,8 @@ pub(crate) struct App {
     frame_max_ms: f64,
     /// Copy selections to the terminal clipboard (off for headless runs).
     pub(crate) clipboard: bool,
+    /// Comment-box transitions the event loop has not run a hook for yet, oldest first.
+    input_hooks: Vec<InputHook>,
     pub(crate) quit: bool,
 }
 
@@ -309,6 +320,7 @@ impl App {
             frame_ms: 0.0,
             frame_max_ms: 0.0,
             clipboard: false,
+            input_hooks: Vec::new(),
             quit: false,
         })
     }
@@ -452,6 +464,12 @@ impl App {
 
     pub(crate) fn set_status(&mut self, status: String) {
         self.status = Some(status);
+    }
+
+    /// The comment-box transitions handled since the last call, oldest first. The event loop
+    /// drains them between events so two in one burst both run their hook.
+    pub(crate) fn take_input_hooks(&mut self) -> Vec<InputHook> {
+        std::mem::take(&mut self.input_hooks)
     }
 
     /// Mark this as a terminal review whose wrapper broke tokens at `breaks` (sorted).

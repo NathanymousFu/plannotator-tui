@@ -318,6 +318,24 @@ pane. Mirror does not preserve overlay presentation, and Herdr 0.8.2 opens an
 overlay in its server's active tab, which can differ from the tab you are viewing.
 An explicit `--placement` or `PLANNOTATOR_TUI_PLACEMENT` still takes precedence.
 
+### Hooks
+
+The comment box can run an argv command when it opens and when it closes — useful on macOS
+for an input-method switch, so a comment is typed in Chinese and the next `Esc` returns the
+keyboard to ABC:
+
+```toml
+[hooks]
+comment_input_enter = ["im-select", "com.apple.inputmethod.SCIM.ITABC"]
+comment_input_exit = ["im-select", "com.apple.keylayout.ABC"]
+```
+
+A command runs directly, without a shell, so no quoting is involved; it inherits no standard
+streams and its output never reaches the screen. It runs synchronously, so it should return
+in milliseconds. `comment_input_exit` runs after `Enter` saved the note as well as after
+`Esc` dropped it, and a command that fails is reported in the footer without ending the
+review. Both lists default to empty.
+
 ## Agent replies
 
 `plannotator-tui last` finds the transcript of the agent that launched your shell and shows a
