@@ -577,6 +577,44 @@ impl App {
         self.ensure_selected_visible();
     }
 
+    /// Where a keyboard selection starts: on real text inside the drawn window. A scroll, a
+    /// click in the gap between blocks or a reflow can leave the cursor on a row with nothing
+    /// to select, so `v` would anchor a highlight that can neither grow nor be seen.
+    fn startable_cursor(&self) -> (usize, usize) {
+        let height = usize::from(self.geometry.doc.height.max(1));
+        let (row, column) = self.snap_to_text(self.cursor);
+        if (self.scroll..self.scroll + height).contains(&row) {
+            return (row, column);
+        }
+        match (self.scroll..self.scroll + height).find(|&row| self.open.layout.row(row).is_some()) {
+            Some(row) => self.snap_to_text((row, column)),
+            None => (row, column),
+        }
+    }
+
+    /// `at` snapped onto real text: the row's own text where it has any, else the nearest row
+    /// that has some. Gap rows and rows a reflow removed have nothing to anchor on.
+    fn snap_to_text(&self, at: (usize, usize)) -> (usize, usize) {
+        let Some(row) = self.nearest_text_row(at.0) else { return at };
+        match self.open.layout.row(row) {
+            Some(line) => (row, line.clamp_column(at.1)),
+            None => at,
+        }
+    }
+
+    /// The row `row` itself when it holds text, else the closest one above, else below.
+    fn nearest_text_row(&self, row: usize) -> Option<usize> {
+        let total = self.open.layout.total_rows;
+        if total == 0 {
+            return None;
+        }
+        let row = row.min(total - 1);
+        (0..=row)
+            .rev()
+            .find(|&row| self.open.layout.row(row).is_some())
+            .or_else(|| (row + 1..total).find(|&row| self.open.layout.row(row).is_some()))
+    }
+
     fn ensure_selected_visible(&mut self) {
         let height = usize::from(self.geometry.doc.height.max(1));
         let Some(block) = self.open.layout.blocks.get(self.selected) else { return };

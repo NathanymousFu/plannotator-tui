@@ -284,8 +284,14 @@ impl App {
                     self.request_quit();
                 }
             }
-            Some(Action::Visual) => self.start_visual(Selection::start(self.cursor)),
-            Some(Action::VisualLine) => self.start_visual(Selection::start_rows(self.cursor)),
+            Some(Action::Visual) => {
+                self.cursor = self.startable_cursor();
+                self.start_visual(Selection::start(self.cursor));
+            }
+            Some(Action::VisualLine) => {
+                self.cursor = self.startable_cursor();
+                self.start_visual(Selection::start_rows(self.cursor));
+            }
             Some(Action::MoveCursor) => self.start_roaming(),
             Some(Action::Down) => self.select_block(self.selected + 1),
             Some(Action::Up) => self.select_block(self.selected.saturating_sub(1)),
@@ -374,6 +380,7 @@ impl App {
     /// Enter roaming: the visual-mode motions move the cursor with nothing selected.
     fn start_roaming(&mut self) {
         self.clear_selection();
+        self.cursor = self.startable_cursor();
         self.roam = true;
         let hint = |action| self.keys.hint(action);
         self.status = Some(format!(
@@ -564,6 +571,7 @@ impl App {
                 });
                 self.last_click = Some((now, mouse.column, mouse.row));
                 let Some(pos) = self.doc_position(mouse.column, mouse.row, false) else { return Ok(()) };
+                let pos = self.snap_to_text(pos);
                 self.focus = Focus::Document;
                 if double
                     && let Some(block) = self.open.layout.block_at_row(pos.0)
