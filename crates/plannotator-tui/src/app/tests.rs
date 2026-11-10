@@ -9,9 +9,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use plannotator_tui_schema::{DocumentSource, Kind, Provenance};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
+use ratatui::style::Color;
 
 use super::send::SendState;
 use super::{App, InputHook, Mode};
@@ -32,11 +34,20 @@ fn scratch_data_dir() -> PathBuf {
 /// A transient source: the app runs exactly as it does on a file, but nothing is written
 /// to the Plannotator data directory.
 fn app(delivery: Box<dyn Delivery>) -> App {
-    let source =
-        DocumentSource::new("# Plan\n\nfirst thing\n".to_owned(), "plan.md", true, Provenance::Stdin);
+    app_with("# Plan\n\nfirst thing\n", delivery)
+}
+
+/// `app` on a document of the test's choosing.
+fn app_with(content: &str, delivery: Box<dyn Delivery>) -> App {
+    let source = DocumentSource::new(content.to_owned(), "plan.md", true, Provenance::Stdin);
     let mut app = App::open(source, 60, delivery).expect("app opens");
     app.data_dir = scratch_data_dir();
     app
+}
+
+/// Press one character key.
+fn press(app: &mut App, ch: char) {
+    app.handle_event(&key(KeyCode::Char(ch), KeyModifiers::NONE)).expect("press");
 }
 
 /// `App::open_message` on `candidates()`, isolated like `app`.
@@ -100,6 +111,13 @@ fn draw(app: &mut App) -> Vec<String> {
                 .collect()
         })
         .collect()
+}
+
+/// One frame as its cells, for tests that assert on style rather than text.
+fn frame(app: &mut App) -> Buffer {
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).expect("terminal");
+    terminal.draw(|f| app.draw(f)).expect("draw");
+    terminal.backend().buffer().clone()
 }
 
 fn row(rows: &[String], index: usize) -> &str {
@@ -646,7 +664,9 @@ fn word_motions_count_a_wide_character_as_two_columns() {
     press_char(&mut app, 'w');
     assert_eq!(app.cursor, (0, 7));
     press_char(&mut app, 'e');
-    assert_eq!(app.cursor, (0, 14));
+    // The last character of テキスト starts at 13; its second cell at 14 is not a place the
+    // cursor can sit.
+    assert_eq!(app.cursor, (0, 13));
     press_char(&mut app, 'w');
     assert_eq!(app.cursor, (0, 16));
     press_char(&mut app, 'b');
@@ -1261,4 +1281,31 @@ fn a_key_that_keeps_the_comment_box_open_runs_no_hook() {
     press_char(&mut app, 'x');
     assert!(app.take_input_hooks().is_empty());
     assert_eq!(app.mode, Mode::Compose);
+}
+
+#[test]
+fn one_press_moves_one_wide_character() {
+    let mut app = app_with("你好世界\n", Box::new(Discard));
+    draw(&mut app);
+    press(&mut app, 'v');
+    press(&mut app, 'l');
+    assert_eq!(app.cursor, (0, 2), "one press stepped over the whole character");
+    press(&mut app, 'l');
+    press(&mut app, 'h');
+    assert_eq!(app.cursor, (0, 2), "and back again");
+    app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("finish");
+    let pending = app.pending.as_ref().expect("a finished selection");
+    assert_eq!(app.open.doc.source.get(pending.range.clone()), Some("你好"));
+}
+
+#[test]
+fn a_wide_last_character_is_not_split_by_the_cursor() {
+    let mut app = app_with("你好世界\n", Box::new(Discard));
+    draw(&mut app);
+    press(&mut app, 'v');
+    press(&mut app, '$');
+    assert_eq!(app.cursor, (0, 6), "the cursor lands on 界, not on its second cell");
+    let doc = app.geometry.doc;
+    let cursor = frame(&mut app).cell((doc.x + 6, doc.y)).expect("cursor cell").bg;
+    assert_ne!(cursor, Color::Reset, "the cursor is drawn on the character");
 }
