@@ -3,6 +3,7 @@
 
 #![allow(clippy::expect_used, clippy::indexing_slicing, reason = "tests assert by panicking")]
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1283,4 +1284,37 @@ fn a_wide_last_character_is_not_split_by_the_cursor() {
     let doc = app.geometry.doc;
     let cursor = frame(&mut app).cell((doc.x + 6, doc.y)).expect("cursor cell").bg;
     assert_ne!(cursor, Color::Reset, "the cursor is drawn on the character");
+}
+
+#[test]
+fn a_selection_starts_inside_the_window_after_scrolling() {
+    let mut source = String::new();
+    for n in 0..30 {
+        let _ = write!(source, "paragraph {n}\n\n");
+    }
+    let mut app = app_with(&source, Box::new(Discard));
+    draw(&mut app);
+    let page = key(KeyCode::Char('d'), KeyModifiers::CONTROL);
+    app.handle_event(&page).expect("page down");
+    app.handle_event(&page).expect("page down");
+    assert!(app.scroll > 0, "the cursor's row scrolled out of sight");
+    press(&mut app, 'v');
+    let (row, _) = app.cursor;
+    assert!(row >= app.scroll, "the selection starts in the window, not above it");
+    assert!(app.open.layout.row(row).is_some(), "and on real text");
+}
+
+#[test]
+fn a_selection_started_on_the_gap_between_blocks_anchors_on_text() {
+    let mut app = app_with("first block\n\nsecond block\n", Box::new(Discard));
+    draw(&mut app);
+    let gap = app.open.layout.blocks.first().map(|b| b.first_row + b.rows.len()).expect("a block");
+    assert!(app.open.layout.row(gap).is_none(), "a gap row sits between the blocks");
+    app.cursor = (gap, 0);
+    press(&mut app, 'v');
+    assert!(app.open.layout.row(app.cursor.0).is_some(), "the anchor moved onto text");
+    press(&mut app, 'j');
+    app.handle_event(&key(KeyCode::Enter, KeyModifiers::NONE)).expect("finish");
+    let pending = app.pending.as_ref().expect("a finished selection");
+    assert!(!pending.range.is_empty(), "a selection anchored on the gap still covers text");
 }

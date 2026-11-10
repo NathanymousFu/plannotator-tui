@@ -473,3 +473,20 @@ result path first so a taken name fails before anyone reviews.
 
 `approve` is a new rebindable action. Its default key yields when a config already gives
 `A` to an action that is live at the same time, so a config that loaded before still loads.
+
+## 18. Motions step by character, not by cell (2026-09-27)
+
+`cursor` and `Selection` count screen cells — the layout, the gutter markers and the drawing
+all speak cells — but a wide (CJK) character owns two cells that share one source offset, so
+cell-wise `l` needed two presses and the second one moved nothing. `Row::char_start`,
+`next_char`, `prev_char`, `char_width` and `char_end` are the only place that knows the
+difference, and `word_start`/`word_end` map word motion through the same character list so
+columns stay honest on a CJK line. `$` lands on the row's last character, not on its second
+cell, and `columns_on` expands both ends to the whole character so a selection never covers
+half of one.
+
+Mouse input stays in raw cells: a press anchors the drag where the user pressed. The cursor
+that follows a press, and the anchor `v` uses, are snapped onto a character start and off gap
+rows. Without that, `v` after a scroll or a click between two blocks anchored where nothing
+could be selected: the row holds no text, or sits outside the drawn window. `i` (decision 15)
+is still how the cursor is placed before selecting; snapping only guarantees the place exists.
