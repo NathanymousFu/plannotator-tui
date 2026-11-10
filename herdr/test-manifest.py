@@ -17,6 +17,7 @@ ACTION_COMMANDS = {
     ("actions", "open"): [PROGRAM, "herdr", "open"],
     ("actions", "open-link"): [PROGRAM, "herdr", "open"],
     ("actions", "last"): [PROGRAM, "herdr", "last"],
+    ("actions", "last-newest"): [PROGRAM, "herdr", "last", "--newest"],
     ("actions", "terminal"): [PROGRAM, "herdr", "terminal"],
 }
 LINK_HANDLERS = {"markdown-file": "open-link"}
